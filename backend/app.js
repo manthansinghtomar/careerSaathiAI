@@ -53,6 +53,7 @@ const questionRoutes = require('./routes/questionRoutes');
 const assessmentRoutes = require('./routes/assessmentRoutes');
 const progressRoutes = require('./routes/progressRoutes');
 const trainerRoutes = require('./routes/trainerRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -60,6 +61,7 @@ app.use('/api/questions', questionRoutes);
 app.use('/api/assessments', assessmentRoutes);
 app.use('/api/progress', progressRoutes);
 app.use('/api/trainer', trainerRoutes);
+app.use('/api/admin', adminRoutes);
 
 // 404 and Centralized Error Handling Middleware
 app.use(notFound);
