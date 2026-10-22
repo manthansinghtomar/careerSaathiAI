@@ -57,7 +57,24 @@ const userSchema = new mongoose.Schema(
       xp: { type: Number, default: 0 },
       level: { type: Number, default: 1 },
       streakCount: { type: Number, default: 1 },
+      longestStreak: { type: Number, default: 1 },
       lastActiveDate: { type: Date, default: Date.now },
+      lastQualifyingDayKey: { type: String, default: null }, // 'YYYY-MM-DD' IST
+      reconciliationLock: {
+        token: { type: String, default: null },
+        lockedAt: { type: Date, default: null },
+        epoch: { type: Number, default: 0 },
+      },
+      pendingMilestones: [
+        {
+          milestone: { type: Number, required: true },
+          dayKey: { type: String, required: true },
+          intentId: { type: String, required: true },
+          status: { type: String, enum: ['pending', 'in_flight'], default: 'pending' },
+          claimToken: { type: String, default: null },
+          claimedAt: { type: Date, default: null },
+        },
+      ],
     },
     assignedTrainer: {
       type: mongoose.Schema.Types.ObjectId,

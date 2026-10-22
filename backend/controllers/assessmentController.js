@@ -3,6 +3,7 @@ const Assessment = require('../models/Assessment');
 const Question = require('../models/Question');
 const User = require('../models/User');
 const { evaluateTextAnswer } = require('../services/llm/evaluationService');
+const { safeDispatchNotification } = require('../services/notificationService');
 
 // @desc    Generate a new assessment for authenticated student
 // @route   POST /api/assessments/generate
@@ -411,6 +412,18 @@ const submitAssessment = async (req, res, next) => {
 
     await lockedAssessment.save();
 
+    safeDispatchNotification({
+      recipient: lockedAssessment.student,
+      type: 'assessment_completed',
+      title: 'Assessment Submitted',
+      message: `Your assessment for ${lockedAssessment.targetRole} has been submitted successfully.`,
+      data: {
+        assessmentId: lockedAssessment._id,
+        score: lockedAssessment.scoring?.overallPercentage || null,
+      },
+      idempotencyKey: `assessment_completed:${lockedAssessment._id}`,
+    });
+
     res.status(200).json({
       success: true,
       message: 'Assessment submitted and evaluated successfully',
@@ -597,6 +610,18 @@ const evaluateAssessment = async (req, res, next) => {
     );
 
     if (pendingQuestions.length === 0) {
+      safeDispatchNotification({
+        recipient: existing.student,
+        type: 'assessment_evaluated',
+        title: 'Assessment Evaluation Ready',
+        message: `Evaluation completed for your ${existing.targetRole} assessment. Final score: ${existing.scoring?.overallPercentage || 0}%.`,
+        data: {
+          assessmentId: existing._id,
+          score: existing.scoring?.overallPercentage || null,
+        },
+        idempotencyKey: `assessment_evaluated:${existing._id}:${existing.scoring?.isFullyEvaluated ? 'final' : 'partial'}`,
+      });
+
       return res.status(200).json({
         success: true,
         message: 'Assessment has no pending questions requiring evaluation',
@@ -799,6 +824,18 @@ const evaluateAssessment = async (req, res, next) => {
       lockedAssessment.isEvaluating = false;
 
       await lockedAssessment.save();
+
+      safeDispatchNotification({
+        recipient: lockedAssessment.student,
+        type: 'assessment_evaluated',
+        title: 'Assessment Evaluation Ready',
+        message: `Evaluation completed for your ${lockedAssessment.targetRole} assessment. Final score: ${lockedAssessment.scoring?.overallPercentage || 0}%.`,
+        data: {
+          assessmentId: lockedAssessment._id,
+          score: lockedAssessment.scoring?.overallPercentage || null,
+        },
+        idempotencyKey: `assessment_evaluated:${lockedAssessment._id}:${lockedAssessment.scoring?.isFullyEvaluated ? 'final' : 'partial'}`,
+      });
 
       res.status(200).json({
         success: true,

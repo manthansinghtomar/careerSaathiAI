@@ -8,6 +8,7 @@ const {
   calculatePracticeActivity,
   formatSafeHistoryItem,
 } = require('../utils/analyticsAggregator');
+const { safeDispatchNotification } = require('../services/notificationService');
 
 const STALE_LOCK_TIMEOUT_MS = 30000; // 30 seconds cutoff for stale lock recovery
 
@@ -881,6 +882,18 @@ const evaluateQuestion = async (req, res, next) => {
       });
     }
 
+    safeDispatchNotification({
+      recipient: commitResult.student,
+      type: 'trainer_feedback',
+      title: 'Trainer Graded Your Question',
+      message: `A trainer has graded a question in your ${commitResult.targetRole} assessment.`,
+      data: {
+        assessmentId: commitResult._id,
+        extra: { questionId },
+      },
+      idempotencyKey: `trainer_grade:${commitResult._id}:${questionId}`,
+    });
+
     res.status(200).json({
       success: true,
       message: 'Question graded manually and assessment scores recalculated successfully',
@@ -958,6 +971,17 @@ const submitTrainerFeedback = async (req, res, next) => {
         message: 'Operation conflict: Evaluation lock expired or was superseded before commit. Feedback was safely aborted.',
       });
     }
+
+    safeDispatchNotification({
+      recipient: commitResult.student,
+      type: 'trainer_feedback',
+      title: 'Trainer Coaching Feedback',
+      message: `Your trainer provided feedback on your ${commitResult.targetRole} assessment: "${remarks.substring(0, 100)}"`,
+      data: {
+        assessmentId: commitResult._id,
+      },
+      idempotencyKey: `trainer_feedback:${commitResult._id}:${Date.now()}`,
+    });
 
     res.status(200).json({
       success: true,
