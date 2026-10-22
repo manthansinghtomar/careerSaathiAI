@@ -98,6 +98,12 @@ const assessmentQuestionSnapshotSchema = new mongoose.Schema(
       type: aiEvaluationSchema,
       default: null,
     },
+    trainerEvaluation: {
+      pointsEarned: { type: Number, default: null },
+      remarks: { type: String, default: null },
+      evaluatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      evaluatedAt: { type: Date, default: null },
+    },
   },
   { _id: false }
 );
@@ -132,6 +138,14 @@ const assessmentSchema = new mongoose.Schema(
     isEvaluating: {
       type: Boolean,
       default: false,
+    },
+    evaluationLockToken: {
+      type: String,
+      default: null,
+    },
+    lockedAt: {
+      type: Date,
+      default: null,
     },
     questions: [assessmentQuestionSnapshotSchema],
     totalQuestions: {
@@ -179,6 +193,11 @@ const assessmentSchema = new mongoose.Schema(
     completedAt: {
       type: Date,
       default: null,
+    },
+    trainerFeedback: {
+      remarks: { type: String, default: null, trim: true },
+      trainer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      givenAt: { type: Date, default: null },
     },
   },
   { timestamps: true }
