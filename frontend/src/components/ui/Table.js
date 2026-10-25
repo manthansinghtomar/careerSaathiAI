@@ -3,9 +3,9 @@ import { cn } from '@/lib/utils';
 
 export function Table({ children, className, ...props }) {
   return (
-    <div className="w-full overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/60">
+    <div className="w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs">
       <table
-        className={cn('w-full text-left text-sm text-zinc-300', className)}
+        className={cn('w-full text-left text-sm text-slate-700', className)}
         {...props}
       >
         {children}
@@ -18,7 +18,7 @@ export function TableHeader({ children, className, ...props }) {
   return (
     <thead
       className={cn(
-        'bg-zinc-950/60 text-xs uppercase tracking-wider text-zinc-400 border-b border-zinc-800',
+        'bg-slate-50/80 text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200',
         className
       )}
       {...props}
@@ -30,7 +30,7 @@ export function TableHeader({ children, className, ...props }) {
 
 export function TableBody({ children, className, ...props }) {
   return (
-    <tbody className={cn('divide-y divide-zinc-800/60', className)} {...props}>
+    <tbody className={cn('divide-y divide-slate-100', className)} {...props}>
       {children}
     </tbody>
   );
@@ -40,8 +40,8 @@ export function TableRow({ children, className, hover = true, ...props }) {
   return (
     <tr
       className={cn(
-        'transition-colors',
-        hover && 'hover:bg-zinc-800/40',
+        'transition-colors duration-100',
+        hover && 'hover:bg-slate-50/70',
         className
       )}
       {...props}
@@ -55,7 +55,7 @@ export function TableHead({ children, className, ...props }) {
   return (
     <th
       scope="col"
-      className={cn('px-4 py-3.5 font-medium whitespace-nowrap', className)}
+      className={cn('px-4 py-3.5 font-semibold text-slate-600 whitespace-nowrap', className)}
       {...props}
     >
       {children}
@@ -66,7 +66,7 @@ export function TableHead({ children, className, ...props }) {
 export function TableCell({ children, className, ...props }) {
   return (
     <td
-      className={cn('px-4 py-3.5 align-middle text-sm text-zinc-300', className)}
+      className={cn('px-4 py-3.5 align-middle text-sm text-slate-700', className)}
       {...props}
     >
       {children}
@@ -79,7 +79,7 @@ export function TableEmpty({ colSpan = 5, message = 'No records found' }) {
     <tr>
       <td
         colSpan={colSpan}
-        className="px-4 py-8 text-center text-sm text-zinc-500 italic"
+        className="px-4 py-8 text-center text-sm text-slate-400 italic"
       >
         {message}
       </td>
