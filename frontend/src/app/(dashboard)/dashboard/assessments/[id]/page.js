@@ -22,6 +22,8 @@ import {
   FileQuestion,
   Bookmark,
 } from 'lucide-react';
+import { VoiceRecorder } from '@/components/shared/VoiceRecorder';
+import { detectAnswerLanguage } from '@/lib/languageDetector';
 
 export default function AssessmentTakingPage() {
   const params = useParams();
@@ -253,6 +255,14 @@ export default function AssessmentTakingPage() {
           <h2 className="text-sm font-bold text-slate-900 hidden sm:block truncate max-w-xs">
             {assessment.targetRole}
           </h2>
+          {assessment.mode && (
+            <Badge
+              variant={assessment.mode === 'mcq' ? 'primary' : assessment.mode === 'text' ? 'warning' : 'default'}
+              size="sm"
+            >
+              {assessment.mode === 'mcq' ? 'MCQ Mode' : assessment.mode === 'text' ? 'Typing Mode' : 'Mixed Mode'}
+            </Badge>
+          )}
         </div>
 
         {/* Center: Elapsed Timer & Progress */}
@@ -437,15 +447,37 @@ export default function AssessmentTakingPage() {
                   </div>
                 ) : (
                   // Subjective Text Input Area
-                  <div className="space-y-2">
-                    <label className="block text-xs font-semibold text-slate-700">
-                      Your Technical Answer:
-                    </label>
+                  <div className="space-y-2.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Your Technical Answer:
+                      </label>
+                      <VoiceRecorder
+                        preferredLanguage={language}
+                        onAppendText={(text) => {
+                          const existing = currentAnswer ? currentAnswer.trim() : '';
+                          const updated = existing ? `${existing} ${text}` : text;
+                          updateAnswer(currentQuestion.questionId, updated);
+                        }}
+                      />
+                    </div>
+                    {language === 'en' &&
+                      currentAnswer &&
+                      detectAnswerLanguage(currentAnswer, 'en').status === 'mismatch' && (
+                        <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2 animate-fadeIn">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-semibold">Language Notice: </span>
+                            English mode is active, but your answer appears to be in Hindi/Hinglish.
+                            You may edit your answer to English in the box below before submitting to avoid an adherence deduction.
+                          </div>
+                        </div>
+                      )}
                     <textarea
                       rows={6}
                       value={currentAnswer}
                       onChange={(e) => updateAnswer(currentQuestion.questionId, e.target.value)}
-                      placeholder="Write your explanation, code trade-offs, or implementation mechanism here... (Evaluated by AI against technical reference rubric)"
+                      placeholder="Write or speak your explanation, code trade-offs, or implementation mechanism here... (Evaluated by AI against technical reference rubric)"
                       className="w-full rounded-xl border border-slate-300 p-3.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0a66c2] focus:border-[#0a66c2] transition-colors leading-relaxed font-sans"
                     />
                     <div className="flex justify-between text-xs text-slate-500">

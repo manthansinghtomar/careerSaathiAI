@@ -998,12 +998,101 @@ const submitTrainerFeedback = async (req, res, next) => {
   }
 };
 
+// @desc    Get paginated cohort assessments for trainer's assigned students
+// @route   GET /api/trainer/assessments
+// @access  Protected (Trainer [cohort only], Admin)
+const getTrainerAssessments = async (req, res, next) => {
+  try {
+    const { page = 1, limit = 10, status = 'all', mode, topic, studentId } = req.query;
+
+    const parsedPage = Math.max(1, parseInt(page, 10) || 1);
+    const parsedLimit = Math.min(50, Math.max(1, parseInt(limit, 10) || 10));
+    const skip = (parsedPage - 1) * parsedLimit;
+
+    let targetStudentIds = [];
+
+    if (studentId) {
+      const student = await verifyStudentOwnership(studentId, req.user);
+      targetStudentIds = [student._id];
+    } else if (req.user.role === 'trainer') {
+      const assignedStudents = await User.find({
+        role: 'student',
+        assignedTrainer: req.user._id,
+        isActive: true,
+      }).select('_id');
+      targetStudentIds = assignedStudents.map((s) => s._id);
+    }
+
+    const filter = {};
+    if (studentId || req.user.role === 'trainer') {
+      filter.student = { $in: targetStudentIds };
+    }
+
+    if (status && status !== 'all') {
+      const allowed = ['completed', 'in_progress', 'abandoned'];
+      if (allowed.includes(status.toLowerCase().trim())) {
+        filter.status = status.toLowerCase().trim();
+      }
+    }
+
+    if (mode && ['mcq', 'text', 'mixed'].includes(mode.toLowerCase().trim())) {
+      filter.mode = mode.toLowerCase().trim();
+    }
+
+    if (topic && typeof topic === 'string' && topic.trim()) {
+      filter.selectedTopics = topic.trim();
+    }
+
+    const total = await Assessment.countDocuments(filter);
+    const assessments = await Assessment.find(filter)
+      .populate('student', 'name email careerProfile')
+      .select('-questions')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parsedLimit);
+
+    const safeData = assessments.map((a) => {
+      const base = formatSafeHistoryItem(a);
+      return {
+        ...base,
+        student: a.student
+          ? {
+              _id: a.student._id,
+              name: a.student.name,
+              email: a.student.email,
+              targetRole: a.student.careerProfile?.targetRole || 'Full Stack Developer',
+            }
+          : null,
+        mode: a.mode || 'mixed',
+      };
+    });
+
+    const totalPages = Math.max(1, Math.ceil(total / parsedLimit));
+
+    res.status(200).json({
+      success: true,
+      data: safeData,
+      pagination: {
+        total,
+        page: parsedPage,
+        limit: parsedLimit,
+        totalPages,
+        hasNextPage: skip + assessments.length < total,
+        hasPrevPage: parsedPage > 1,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getTrainerDashboard,
   getTrainerStudents,
   getTrainerStudentById,
   getStudentAssessments,
   getStudentProgressAnalytics,
+  getTrainerAssessments,
   getTrainerAssessmentById,
   evaluateQuestion,
   submitTrainerFeedback,

@@ -10,7 +10,38 @@ const { safeDispatchNotification } = require('../services/notificationService');
 // @access  Protected (Student only)
 const generateAssessment = async (req, res, next) => {
   try {
-    const studentId = req.user._id;
+    let studentId = req.user._id;
+
+    // Trainers and admins can generate/configure assessments for assigned students
+    if (req.user.role === 'trainer' || req.user.role === 'admin') {
+      if (req.body?.studentId) {
+        if (!mongoose.Types.ObjectId.isValid(req.body.studentId)) {
+          return res.status(400).json({
+            success: false,
+            status: 400,
+            message: 'Invalid student ID format',
+          });
+        }
+        const studentUser = await User.findOne({ _id: req.body.studentId, role: 'student', isActive: true });
+        if (!studentUser) {
+          return res.status(404).json({
+            success: false,
+            status: 404,
+            message: 'Target student not found',
+          });
+        }
+        if (req.user.role === 'trainer') {
+          if (!studentUser.assignedTrainer || studentUser.assignedTrainer.toString() !== req.user._id.toString()) {
+            return res.status(403).json({
+              success: false,
+              status: 403,
+              message: 'Access forbidden: Student is not assigned to you',
+            });
+          }
+        }
+        studentId = studentUser._id;
+      }
+    }
 
     // Check if the student already has an active in-progress assessment
     const existingInProgress = await Assessment.findOne({
@@ -32,7 +63,18 @@ const generateAssessment = async (req, res, next) => {
       selectedTopics,
       questionCount = 10,
       difficulty = 'balanced',
+      mode = 'mixed',
     } = req.body || {};
+
+    const validModes = ['mcq', 'text', 'mixed'];
+    if (mode && !validModes.includes(mode)) {
+      return res.status(400).json({
+        success: false,
+        status: 400,
+        message: `Invalid assessment mode: '${mode}'. Permitted modes are: ${validModes.join(', ')}`,
+      });
+    }
+    const chosenMode = mode || 'mixed';
 
     const validTopics = ['JavaScript', 'React', 'Node.js', 'MongoDB'];
     if (!Array.isArray(selectedTopics) || selectedTopics.length === 0) {
@@ -54,18 +96,26 @@ const generateAssessment = async (req, res, next) => {
 
     const requestedCount = Math.min(25, Math.max(3, parseInt(questionCount, 10) || 10));
 
-    // Fetch candidate active questions for the requested topics & role with +correctAnswer for snapshotting
-    const candidateQuestions = await Question.find({
+    // Fetch candidate active questions filtered by mode (mcq / text / mixed)
+    const questionFilter = {
       targetRole: targetRole.trim(),
       topic: { $in: selectedTopics },
       isActive: true,
-    }).select('+correctAnswer');
+    };
+    if (chosenMode === 'mcq') {
+      questionFilter.type = 'mcq';
+    } else if (chosenMode === 'text') {
+      questionFilter.type = 'text';
+    }
+
+    const candidateQuestions = await Question.find(questionFilter).select('+correctAnswer');
 
     if (candidateQuestions.length < requestedCount) {
+      const modeLabel = chosenMode === 'mcq' ? 'MCQ ' : chosenMode === 'text' ? 'text/descriptive ' : '';
       return res.status(400).json({
         success: false,
         status: 400,
-        message: `Not enough active questions available for selected topics. Available: ${candidateQuestions.length}, Requested: ${requestedCount}`,
+        message: `Not enough active ${modeLabel}questions available for selected topics. Available: ${candidateQuestions.length}, Requested: ${requestedCount}`,
       });
     }
 
@@ -145,6 +195,7 @@ const generateAssessment = async (req, res, next) => {
       student: studentId,
       targetRole: targetRole.trim(),
       selectedTopics,
+      mode: chosenMode,
       status: 'in_progress',
       questions: questionSnapshots,
       totalQuestions: questionSnapshots.length,
@@ -504,6 +555,7 @@ const getAssessmentResults = async (req, res, next) => {
         assessmentId: assessment._id,
         targetRole: assessment.targetRole,
         selectedTopics: assessment.selectedTopics,
+        mode: assessment.mode || 'mixed',
         completedAt: assessment.completedAt,
         scoring: assessment.scoring,
         topicWiseResults: assessment.topicWiseResults,
@@ -697,7 +749,13 @@ const evaluateAssessment = async (req, res, next) => {
 
           q.aiEvaluation = {
             score: evalResult.score,
+            rawScore: evalResult.rawScore,
             percentage: evalResult.percentage,
+            rawPercentage: evalResult.rawPercentage,
+            languageMismatch: evalResult.languageMismatch,
+            languagePenalty: evalResult.languagePenalty,
+            detectedLanguage: evalResult.detectedLanguage,
+            languageWarning: evalResult.languageWarning,
             rubricBreakdown: evalResult.rubricBreakdown,
             feedback: evalResult.feedback,
             strengths: evalResult.strengths,

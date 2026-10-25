@@ -656,14 +656,15 @@ export default function ProgressAnalyticsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {historyItems.map((item) => {
+                {historyItems.map((item, idx) => {
+                  const assessmentId = item.assessmentId || item._id;
                   const isInProgress = item.status === 'in_progress';
                   const hasScore =
                     item.scoring?.overallPercentage !== undefined &&
                     item.scoring?.overallPercentage !== null;
 
                   return (
-                    <TableRow key={item.assessmentId}>
+                    <TableRow key={assessmentId || `history-${idx}`}>
                       <TableCell className="font-semibold text-slate-900">
                         {item.targetRole || 'Full Stack Developer'}
                       </TableCell>
@@ -696,7 +697,7 @@ export default function ProgressAnalyticsPage() {
                       </TableCell>
                       <TableCell className="text-xs text-slate-600">
                         {item.scoring?.objectivePercentage !== undefined
-                          ? `${item.scoring.objectivePercentage}%`
+                           ? `${item.scoring.objectivePercentage}%`
                           : '—'}
                       </TableCell>
                       <TableCell className="text-xs text-slate-500">
@@ -704,13 +705,13 @@ export default function ProgressAnalyticsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         {isInProgress ? (
-                          <Link href={`/dashboard/assessments/${item.assessmentId}`}>
+                          <Link href={`/dashboard/assessments/${assessmentId}`}>
                             <Button size="sm" variant="primary">
                               Resume
                             </Button>
                           </Link>
                         ) : (
-                          <Link href={`/dashboard/assessments/${item.assessmentId}/results`}>
+                          <Link href={`/dashboard/assessments/${assessmentId}/results`}>
                             <Button size="sm" variant="secondary">
                               View Results
                             </Button>

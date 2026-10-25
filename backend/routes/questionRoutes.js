@@ -6,6 +6,7 @@ const {
   getQuestionById,
   updateQuestion,
   toggleQuestionStatus,
+  deleteQuestion,
 } = require('../controllers/questionController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -18,5 +19,6 @@ router.get('/', getQuestions);
 router.get('/:id', getQuestionById);
 router.put('/:id', updateQuestion);
 router.patch('/:id/status', toggleQuestionStatus);
+router.delete('/:id', deleteQuestion);
 
 module.exports = router;

@@ -224,10 +224,18 @@ export default function AssessmentResultsPage() {
       <div className="bg-white border border-slate-200 rounded-xl p-6 sm:p-8 shadow-xs space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-slate-100">
           <div>
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
               <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
                 Assessment Results: {results.targetRole}
               </h1>
+              {results.mode && (
+                <Badge
+                  variant={results.mode === 'mcq' ? 'primary' : results.mode === 'text' ? 'warning' : 'default'}
+                  size="sm"
+                >
+                  {results.mode === 'mcq' ? 'MCQ Only' : results.mode === 'text' ? 'Typing Only' : 'Mixed Assessment'}
+                </Badge>
+              )}
               <Badge variant={scoring.isFullyEvaluated ? 'success' : 'warning'} size="sm" dot>
                 {scoring.isFullyEvaluated ? 'Fully Evaluated' : 'Partial (Pending AI Review)'}
               </Badge>

@@ -13,14 +13,15 @@ import {
   Sparkles,
   Flame,
   Users,
-  CheckSquare,
-  MessageSquare,
   ShieldCheck,
   UserCheck,
   BarChart3,
   ScrollText,
   LogOut,
   X,
+  Settings,
+  HelpCircle,
+  FileCheck,
 } from 'lucide-react';
 
 const ROLE_NAV_ITEMS = {
@@ -30,12 +31,14 @@ const ROLE_NAV_ITEMS = {
     { label: 'Progress & Analytics', href: '/dashboard/progress', icon: TrendingUp },
     { label: 'AI Recommendations', href: '/dashboard/recommendations', icon: Sparkles },
     { label: 'Learning Streaks', href: '/dashboard/streaks', icon: Flame },
+    { label: 'Profile & Settings', href: '/dashboard/settings', icon: Settings },
   ],
   trainer: [
     { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
-    { label: 'Student Roster', href: '/dashboard/students', icon: Users },
-    { label: 'Assessment Grading', href: '/dashboard/grading', icon: CheckSquare },
-    { label: 'Coaching Feedback', href: '/dashboard/feedback', icon: MessageSquare },
+    { label: 'Students & Progress', href: '/dashboard/students', icon: Users },
+    { label: 'Question Bank', href: '/dashboard/questions', icon: HelpCircle },
+    { label: 'Assessment Management', href: '/dashboard/assessments', icon: FileCheck },
+    { label: 'Profile & Settings', href: '/dashboard/settings', icon: Settings },
   ],
   admin: [
     { label: 'Platform Overview', href: '/dashboard', icon: LayoutDashboard },
@@ -43,6 +46,7 @@ const ROLE_NAV_ITEMS = {
     { label: 'Trainer Assignments', href: '/dashboard/assignments', icon: UserCheck },
     { label: 'System Analytics', href: '/dashboard/analytics', icon: BarChart3 },
     { label: 'Audit Logs', href: '/dashboard/audit', icon: ScrollText },
+    { label: 'Profile & Settings', href: '/dashboard/settings', icon: Settings },
   ],
 };
 

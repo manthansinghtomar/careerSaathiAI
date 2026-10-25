@@ -211,6 +211,7 @@ function formatSafeHistoryItem(assessment) {
     // In-progress / abandoned: Whitelist ONLY safe operational metadata
     return {
       _id: a._id,
+      assessmentId: a._id,
       targetRole: a.targetRole || 'Full Stack Developer',
       selectedTopics: a.selectedTopics || [],
       status: a.status || 'in_progress',
@@ -225,6 +226,7 @@ function formatSafeHistoryItem(assessment) {
   // Completed: Include sanitized scoring and results summary
   return {
     _id: a._id,
+    assessmentId: a._id,
     targetRole: a.targetRole || 'Full Stack Developer',
     selectedTopics: a.selectedTopics || [],
     status: 'completed',

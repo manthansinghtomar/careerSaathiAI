@@ -5,7 +5,11 @@
  */
 
 const { getActiveProvider } = require('./providerFactory');
+const { detectAnswerLanguage } = require('../../utils/languageDetector');
 
+/**
+ * Standard rubric dimension weights summing to 1.0 (100%)
+ */
 const RUBRIC_WEIGHTS = {
   technicalCorrectness: 0.40,
   conceptualUnderstanding: 0.25,
@@ -13,6 +17,14 @@ const RUBRIC_WEIGHTS = {
   reasoning: 0.10,
   answerRelevance: 0.10,
 };
+
+/**
+ * Configurable Language Adherence Penalty Policy
+ * When English mode is selected and a confirmed Hindi/Hinglish mismatch is detected,
+ * a documented deduction is applied to the overall percentage.
+ * Raw technical scores are strictly preserved separately.
+ */
+const LANGUAGE_MISMATCH_PENALTY_PERCENTAGE = 15; // 15 percentage points deduction
 
 /**
  * Builds the structured evaluation prompt.
@@ -133,9 +145,9 @@ const validateRubricResponse = (rawJson) => {
 };
 
 /**
- * Computes exact mathematical scores based on rubric breakdown and maxPoints.
+ * Computes exact mathematical scores based on rubric breakdown, maxPoints, and optional penalty.
  */
-const computeScores = (rubricBreakdown, maxPoints = 1) => {
+const computeScores = (rubricBreakdown, maxPoints = 1, penaltyPercentage = 0) => {
   const weightedScore =
     rubricBreakdown.technicalCorrectness * RUBRIC_WEIGHTS.technicalCorrectness +
     rubricBreakdown.conceptualUnderstanding * RUBRIC_WEIGHTS.conceptualUnderstanding +
@@ -143,17 +155,21 @@ const computeScores = (rubricBreakdown, maxPoints = 1) => {
     rubricBreakdown.reasoning * RUBRIC_WEIGHTS.reasoning +
     rubricBreakdown.answerRelevance * RUBRIC_WEIGHTS.answerRelevance;
 
-  // Round to 2 decimal places: e.g. 8.45 / 10 -> 84.5%
-  const percentage = Math.round((weightedScore / 10.0) * 10000) / 100;
+  // Round raw percentage to 2 decimal places: e.g. 8.45 / 10 -> 84.5%
+  const rawPercentage = Math.round((weightedScore / 10.0) * 10000) / 100;
 
-  // Partial points earned: proportional to percentage (e.g. 0.65 on 1-point question)
+  // Adjusted percentage after penalty deduction (clamped at minimum 0)
+  const percentage = Math.max(0, Math.round((rawPercentage - penaltyPercentage) * 100) / 100);
+
+  // Partial points earned: proportional to final percentage
   const pointsEarned = Math.round(((percentage / 100) * maxPoints) * 100) / 100;
 
-  // Consistent boolean correctness policy: true if >= 70.0%
+  // Consistent boolean correctness policy: true if final percentage >= 70.0%
   const isCorrect = percentage >= 70.0;
 
   return {
     weightedScore: Math.round(weightedScore * 100) / 100,
+    rawPercentage,
     percentage,
     pointsEarned,
     isCorrect,
@@ -161,7 +177,8 @@ const computeScores = (rubricBreakdown, maxPoints = 1) => {
 };
 
 /**
- * Evaluates a single technical answer using the configured LLM provider.
+ * Evaluates a single technical answer using the configured LLM provider,
+ * validates language adherence, and applies transparent scoring adjustments.
  */
 const evaluateTextAnswer = async ({
   questionText,
@@ -204,21 +221,59 @@ const evaluateTextAnswer = async ({
   // Strict validation: Reject malformed or out-of-range AI output
   validateRubricResponse(parsed);
 
-  const { weightedScore, percentage, pointsEarned, isCorrect } = computeScores(
+  // 1. Compute raw technical score
+  const { weightedScore, rawPercentage } = computeScores(
     parsed.rubricBreakdown,
-    maxPoints
+    maxPoints,
+    0
+  );
+
+  // 2. Perform authoritative language validation
+  const langResult = detectAnswerLanguage(studentAnswer, preferredLanguage);
+
+  let languagePenalty = 0;
+  let languageMismatch = false;
+  let languageWarning = null;
+  let feedbackExplanation = '';
+
+  if (preferredLanguage === 'en' && langResult.status === 'mismatch') {
+    // Confirmed mismatch: English mode selected, but answer was predominantly Hindi/Hinglish
+    languageMismatch = true;
+    languagePenalty = LANGUAGE_MISMATCH_PENALTY_PERCENTAGE;
+    languageWarning =
+      'Selected assessment mode requires English, but this answer was identified as Hindi/Hinglish.';
+    feedbackExplanation = `\n\n[Language Adherence Deduction]: Selected mode requires English, but this answer was identified as Hindi/Hinglish. A ${languagePenalty}% language deduction was applied (Raw technical score: ${rawPercentage}% → Adjusted score: ${Math.max(0, rawPercentage - languagePenalty)}%).`;
+  } else if (preferredLanguage === 'en' && langResult.status === 'uncertain' && langResult.details?.hindiMarkers > 0) {
+    // Uncertain detection: Non-punitive warning without marks deduction
+    languageWarning =
+      'Language adherence could not be definitively confirmed. No score deduction was applied.';
+    feedbackExplanation =
+      '\n\n[Language Note]: Language adherence was uncertain. Technical score was preserved without deduction.';
+  }
+
+  // 3. Compute final scores incorporating language penalty
+  const { percentage, pointsEarned, isCorrect } = computeScores(
+    parsed.rubricBreakdown,
+    maxPoints,
+    languagePenalty
   );
 
   return {
     score: weightedScore,
+    rawScore: weightedScore,
     percentage,
+    rawPercentage,
     pointsEarned,
     isCorrect,
     rubricBreakdown: parsed.rubricBreakdown,
-    feedback: parsed.feedback.trim(),
+    feedback: `${parsed.feedback.trim()}${feedbackExplanation}`,
     strengths: parsed.strengths.map((s) => s.trim()),
     weaknesses: parsed.weaknesses.map((w) => w.trim()),
     suggestions: parsed.suggestions.map((s) => s.trim()),
+    languageMismatch,
+    languagePenalty,
+    detectedLanguage: langResult.detectedLanguage,
+    languageWarning,
     evaluatedLanguage: preferredLanguage === 'hinglish' ? 'hinglish' : 'en',
     modelUsed: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
     evaluatedAt: new Date(),
@@ -227,8 +282,10 @@ const evaluateTextAnswer = async ({
 
 module.exports = {
   RUBRIC_WEIGHTS,
+  LANGUAGE_MISMATCH_PENALTY_PERCENTAGE,
   buildEvaluationPrompt,
   validateRubricResponse,
   computeScores,
   evaluateTextAnswer,
 };
+

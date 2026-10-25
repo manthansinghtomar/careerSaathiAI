@@ -3,6 +3,7 @@
 import React from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Badge } from '@/components/ui/Badge';
+import { NotificationDropdown } from '@/components/shared/NotificationDropdown';
 import { Menu, Flame, LogOut } from 'lucide-react';
 
 const ROLE_BADGE_VARIANTS = {
@@ -12,7 +13,7 @@ const ROLE_BADGE_VARIANTS = {
 };
 
 export function Topbar({ onMenuClick }) {
-  const { user, logout } = useAuth();
+  const { user, logout, isAuthenticated } = useAuth();
   const userRole = user?.role || 'student';
   const roleBadge = ROLE_BADGE_VARIANTS[userRole] || ROLE_BADGE_VARIANTS.student;
 
@@ -41,8 +42,8 @@ export function Topbar({ onMenuClick }) {
         </div>
       </div>
 
-      {/* Right: Real user metadata, streak pill, role badge, logout */}
-      <div className="flex items-center gap-3 sm:gap-4">
+      {/* Right: Real user metadata, streak pill, notifications, role badge, logout */}
+      <div className="flex items-center gap-2.5 sm:gap-3.5">
         {/* Real Streak Indicator (Only if server provided streak count) */}
         {serverStreak !== null && serverStreak > 0 && (
           <div
@@ -53,6 +54,9 @@ export function Topbar({ onMenuClick }) {
             <span>{serverStreak}d streak</span>
           </div>
         )}
+
+        {/* Notification Bell & Dropdown */}
+        <NotificationDropdown isAuthenticated={isAuthenticated} />
 
         {/* Role Badge */}
         <Badge variant={roleBadge.variant} size="sm">

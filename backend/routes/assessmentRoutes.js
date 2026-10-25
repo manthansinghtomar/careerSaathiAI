@@ -12,8 +12,8 @@ const { protect, authorize } = require('../middleware/authMiddleware');
 
 router.use(protect);
 
-// Student assessment workflows
-router.post('/generate', authorize('student'), generateAssessment);
+// Assessment creation & workflows
+router.post('/generate', authorize('student', 'trainer', 'admin'), generateAssessment);
 router.get('/my', authorize('student'), getMyAssessments);
 router.post('/:id/submit', authorize('student'), submitAssessment);
 

@@ -455,6 +455,9 @@ async function runAllTests() {
     });
     recordTest('TC-25', 'Results Guard', 'Accessing /results on in-progress assessment is rejected (400)', prematureResultsRes.status === 400, `Status: ${prematureResultsRes.status}`);
 
+    // Mark Student B's assessment as completed so student B can perform subsequent generation tests
+    await Assessment.findByIdAndUpdate(assessmentBId, { status: 'completed' });
+
     // -------------------------------------------------------------
     // REGRESSION TESTS FOR MODULES 1 & 2
     // -------------------------------------------------------------
@@ -475,6 +478,46 @@ async function runAllTests() {
       headers: { Authorization: `Bearer ${studentAToken}` },
     });
     recordTest('TC-28', 'Student History', 'Student can list their own past assessments', myAssessmentsRes.status === 200 && myAssessmentsRes.data?.count >= 1, `Count: ${myAssessmentsRes.data?.count}`);
+
+    // TC-29: Assessment generation rejects invalid mode (400)
+    const invalidModeRes = await request('/assessments/generate', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${studentBToken}` },
+      body: JSON.stringify({
+        selectedTopics: ['JavaScript', 'React'],
+        questionCount: 3,
+        mode: 'voice_ai', // unsupported mode
+      }),
+    });
+    recordTest('TC-29', 'Assessment Mode', 'Rejects invalid assessment mode with 400', invalidModeRes.status === 400 && invalidModeRes.data?.message?.includes('Invalid assessment mode'), `Status: ${invalidModeRes.status}, Msg: ${invalidModeRes.data?.message}`);
+
+    // TC-30: Assessment generation with mode='mcq' generates strictly MCQ questions
+    const mcqModeRes = await request('/assessments/generate', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${studentBToken}` },
+      body: JSON.stringify({
+        selectedTopics: ['JavaScript', 'React', 'Node.js', 'MongoDB'],
+        questionCount: 4,
+        mode: 'mcq',
+      }),
+    });
+    const mcqAssessmentId = mcqModeRes.data?.data?._id;
+    if (mcqAssessmentId) createdAssessmentIds.add(mcqAssessmentId);
+    const allMcq = mcqModeRes.data?.data?.questions?.every((q) => q.type === 'mcq');
+    recordTest('TC-30', 'Assessment Mode', 'mode="mcq" generates strictly MCQ questions', mcqModeRes.status === 201 && allMcq && mcqModeRes.data?.data?.mode === 'mcq', `Status: ${mcqModeRes.status}, All MCQ: ${allMcq}, Mode: ${mcqModeRes.data?.data?.mode}, Msg: ${mcqModeRes.data?.message}`);
+
+    // TC-31: Assessment generation with mode='text' fails gracefully when insufficient text questions exist
+    // Student A has completed their test, so we test text mode on student A
+    const textModeRes = await request('/assessments/generate', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${studentAToken}` },
+      body: JSON.stringify({
+        selectedTopics: ['JavaScript', 'React', 'Node.js', 'MongoDB'],
+        questionCount: 5,
+        mode: 'text', // Only 1 text question exists in test setup, requested 5
+      }),
+    });
+    recordTest('TC-31', 'Assessment Mode', 'mode="text" rejects with informative message if insufficient text questions', textModeRes.status === 400 && textModeRes.data?.message?.includes('Not enough active text/descriptive questions'), `Status: ${textModeRes.status}, Message: ${textModeRes.data?.message}`);
 
   } catch (err) {
     caughtError = err;

@@ -361,10 +361,55 @@ const toggleQuestionStatus = async (req, res, next) => {
   }
 };
 
+// @desc    Delete a question
+// @route   DELETE /api/questions/:id
+// @access  Protected (Trainer [own only], Admin)
+const deleteQuestion = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        status: 400,
+        message: 'Invalid question ID format',
+      });
+    }
+
+    const question = await Question.findById(id);
+    if (!question) {
+      return res.status(404).json({
+        success: false,
+        status: 404,
+        message: 'Question not found',
+      });
+    }
+
+    if (req.user.role === 'trainer' && question.createdBy.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        status: 403,
+        message: 'Access forbidden: Trainers can only delete questions they created',
+      });
+    }
+
+    await Question.findByIdAndDelete(id);
+
+    res.status(200).json({
+      success: true,
+      message: 'Question deleted successfully',
+      data: { _id: id },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createQuestion,
   getQuestions,
   getQuestionById,
   updateQuestion,
   toggleQuestionStatus,
+  deleteQuestion,
 };

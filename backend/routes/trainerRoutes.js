@@ -6,6 +6,7 @@ const {
   getTrainerStudentById,
   getStudentAssessments,
   getStudentProgressAnalytics,
+  getTrainerAssessments,
   getTrainerAssessmentById,
   evaluateQuestion,
   submitTrainerFeedback,
@@ -25,7 +26,8 @@ router.get('/students/:studentId', getTrainerStudentById);
 router.get('/students/:studentId/assessments', getStudentAssessments);
 router.get('/students/:studentId/progress', getStudentProgressAnalytics);
 
-// Assessment review, manual grading & coaching feedback
+// Cohort Assessment Management & review
+router.get('/assessments', getTrainerAssessments);
 router.get('/assessments/:assessmentId', getTrainerAssessmentById);
 router.post('/assessments/:assessmentId/evaluate-question', evaluateQuestion);
 router.post('/assessments/:assessmentId/feedback', submitTrainerFeedback);
