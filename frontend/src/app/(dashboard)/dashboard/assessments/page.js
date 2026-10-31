@@ -33,9 +33,17 @@ import {
   PenTool,
   Layers,
   Users,
+  Globe,
 } from 'lucide-react';
 
 const AVAILABLE_TOPICS = ['JavaScript', 'React', 'Node.js', 'MongoDB'];
+
+function formatSafeScore(val) {
+  if (typeof val === 'number' && !isNaN(val)) {
+    return `${Math.round(val)}%`;
+  }
+  return null;
+}
 
 export default function AssessmentHubPage() {
   const router = useRouter();
@@ -60,11 +68,29 @@ export default function AssessmentHubPage() {
   const [selectedStudentId, setSelectedStudentId] = useState('');
 
   // Form State
-  const [targetRole, setTargetRole] = useState('Full Stack Developer');
+  const [targetRole, setTargetRole] = useState(
+    user?.careerProfile?.targetRole?.trim() || 'Full Stack Developer'
+  );
+  const [hasManuallyEditedRole, setHasManuallyEditedRole] = useState(false);
   const [selectedTopics, setSelectedTopics] = useState(['JavaScript', 'React', 'Node.js', 'MongoDB']);
   const [questionCount, setQuestionCount] = useState(10);
   const [difficulty, setDifficulty] = useState('balanced');
   const [mode, setMode] = useState('mixed'); // 'mcq' | 'text' | 'mixed'
+  const [languageMode, setLanguageMode] = useState('english'); // 'english' | 'hinglish' | 'flexible'
+
+  // Sync targetRole with user profile when loaded asynchronously, unless student manually edited it
+  useEffect(() => {
+    if (!hasManuallyEditedRole && user?.careerProfile?.targetRole?.trim()) {
+      setTargetRole(user.careerProfile.targetRole.trim());
+    }
+  }, [user?.careerProfile?.targetRole, hasManuallyEditedRole]);
+
+  const handleOpenModal = () => {
+    if (!hasManuallyEditedRole && user?.careerProfile?.targetRole?.trim()) {
+      setTargetRole(user.careerProfile.targetRole.trim());
+    }
+    setIsModalOpen(true);
+  };
 
   const [reloadIndex, setReloadIndex] = useState(0);
 
@@ -166,11 +192,12 @@ export default function AssessmentHubPage() {
       setInProgressConflictId(null);
 
       const payload = {
-        targetRole: targetRole.trim() || 'Full Stack Developer',
+        targetRole: targetRole.trim() || user?.careerProfile?.targetRole?.trim() || 'Full Stack Developer',
         selectedTopics,
         questionCount: Math.min(25, Math.max(3, parseInt(questionCount, 10) || 10)),
         difficulty,
         mode,
+        languageMode,
       };
 
       if ((userRole === 'trainer' || userRole === 'admin') && selectedStudentId) {
@@ -226,17 +253,19 @@ export default function AssessmentHubPage() {
                 {userRole === 'trainer' ? 'Cohort Assessment Management' : 'Technical Assessments'}
               </h1>
               <Badge variant={userRole === 'trainer' ? 'success' : 'primary'} size="sm">
-                {userRole === 'trainer' ? 'Trainer Console' : 'AI Evaluated'}
+                {userRole === 'trainer'
+                  ? 'Trainer Console'
+                  : user?.careerProfile?.targetRole?.trim() || 'Skill Benchmark'}
               </Badge>
             </div>
             <p className="text-sm text-slate-600">
               {userRole === 'trainer'
                 ? 'Create, inspect, and monitor AI-evaluated assessments across MCQ, Typing, and Mixed modes.'
-                : 'Take adaptive assessments tailored to your role. Immediate scoring for objective MCQs and AI rubrics for descriptive answers.'}
+                : 'Take role-focused technical assessments with instant multiple-choice scoring and personalized AI evaluations for written responses.'}
             </p>
           </div>
 
-          <Button icon={Sparkles} onClick={() => setIsModalOpen(true)}>
+          <Button icon={Sparkles} onClick={handleOpenModal}>
             {userRole === 'trainer' ? 'Create Assessment' : 'Start New Assessment'}
           </Button>
         </div>
@@ -323,12 +352,12 @@ export default function AssessmentHubPage() {
               <select
                 value={modeFilter}
                 onChange={(e) => setModeFilter(e.target.value)}
-                className="text-xs rounded-lg border border-slate-200 px-2 py-1 bg-white text-slate-800 uppercase focus:outline-none focus:border-[#0a66c2]"
+                className="text-xs rounded-lg border border-slate-200 px-2 py-1 bg-white text-slate-800 focus:outline-none focus:border-[#0a66c2]"
               >
-                <option value="all">ALL MODES</option>
-                <option value="mcq">MCQ</option>
-                <option value="text">TYPING</option>
-                <option value="mixed">MIXED</option>
+                <option value="all">All Formats</option>
+                <option value="mcq">Multiple Choice (MCQ)</option>
+                <option value="text">Typing (Descriptive)</option>
+                <option value="mixed">Mixed Format</option>
               </select>
             </div>
           </div>
@@ -372,8 +401,7 @@ export default function AssessmentHubPage() {
             <TableBody>
               {filteredAssessments.map((a, idx) => {
                 const isInProgress = a.status === 'in_progress';
-                const hasScore =
-                  a.scoring?.overallPercentage !== undefined && a.scoring?.overallPercentage !== null;
+                const isFullyEvaluated = Boolean(a.isFullyEvaluated || a.scoring?.isFullyEvaluated);
                 const assessmentId = a._id || a.assessmentId;
 
                 return (
@@ -400,11 +428,28 @@ export default function AssessmentHubPage() {
                             ? 'primary'
                             : a.mode === 'text'
                             ? 'warning'
-                            : 'neutral'
+                            : 'default'
                         }
                         size="sm"
                       >
                         {a.mode === 'mcq' ? 'MCQ' : a.mode === 'text' ? 'Typing' : 'Mixed'}
+                      </Badge>
+                      <Badge
+                        variant={
+                          a.languageMode === 'flexible'
+                            ? 'info'
+                            : a.languageMode === 'hinglish'
+                            ? 'warning'
+                            : 'default'
+                        }
+                        size="sm"
+                        className="ml-1"
+                      >
+                        {a.languageMode === 'flexible'
+                          ? 'Flexible'
+                          : a.languageMode === 'hinglish'
+                          ? 'Hinglish'
+                          : 'English'}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -434,10 +479,23 @@ export default function AssessmentHubPage() {
                     </TableCell>
                     <TableCell>
                       {isInProgress ? (
-                        <span className="text-xs text-slate-400 italic">Not evaluated</span>
-                      ) : (
+                        <span className="text-xs text-slate-400 italic">Unsubmitted</span>
+                      ) : isFullyEvaluated ? (
                         <span className="font-bold text-slate-900 text-xs">
-                          {hasScore ? `${a.scoring.overallPercentage}%` : 'Pending'}
+                          {formatSafeScore(a.scoring?.overallPercentage) ?? '—'}
+                        </span>
+                      ) : typeof a.scoring?.objectivePercentage === 'number' && !isNaN(a.scoring.objectivePercentage) ? (
+                        <div className="flex flex-col">
+                          <span className="font-bold text-slate-700 text-xs">
+                            {formatSafeScore(a.scoring.objectivePercentage)}
+                          </span>
+                          <span className="text-[10px] text-amber-600 font-medium">
+                            Provisional (MCQ)
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                          Awaiting Evaluation
                         </span>
                       )}
                     </TableCell>
@@ -454,14 +512,14 @@ export default function AssessmentHubPage() {
                           </Link>
                         ) : (
                           <Link href={`/dashboard/assessments/${assessmentId}/results`}>
-                            <Button size="sm" variant="secondary">
+                            <Button size="sm" variant="secondary" icon={ArrowRight}>
                               View Results
                             </Button>
                           </Link>
                         )
                       ) : (
                         <Link href={`/dashboard/assessments/${assessmentId}/results`}>
-                          <Button size="sm" variant="secondary">
+                          <Button size="sm" variant="secondary" icon={ArrowRight}>
                             View Results
                           </Button>
                         </Link>
@@ -482,7 +540,7 @@ export default function AssessmentHubPage() {
                 : `No assessments found with status "${statusFilter}".`
             }
             action={
-              <Button icon={Sparkles} onClick={() => setIsModalOpen(true)}>
+              <Button icon={Sparkles} onClick={handleOpenModal}>
                 {userRole === 'trainer' ? 'Create Assessment' : 'Start New Assessment'}
               </Button>
             }
@@ -498,7 +556,7 @@ export default function AssessmentHubPage() {
         description={
           userRole === 'trainer'
             ? 'Configure an AI-evaluated assessment suite for an assigned student.'
-            : 'Select topics, question count, and mode. Questions will be sampled deterministically from the question bank.'
+            : 'Customize your assessment by selecting technical topics, format, question count, and difficulty level.'
         }
         size="lg"
         footer={
@@ -585,8 +643,11 @@ export default function AssessmentHubPage() {
             </label>
             <Input
               value={targetRole}
-              onChange={(e) => setTargetRole(e.target.value)}
-              placeholder="e.g. Full Stack Developer, Frontend Engineer"
+              onChange={(e) => {
+                setHasManuallyEditedRole(true);
+                setTargetRole(e.target.value);
+              }}
+              placeholder="e.g. Frontend Engineer, Full Stack Developer"
               disabled={isGenerating}
             />
           </div>
@@ -693,7 +754,7 @@ export default function AssessmentHubPage() {
                   <span>Typing Mode</span>
                 </div>
                 <p className="text-[11px] text-slate-500 leading-snug">
-                  Descriptive answers evaluated by AI against technical rubrics.
+                  Descriptive answers evaluated with personalized AI feedback across core engineering concepts.
                 </p>
               </button>
             </div>
@@ -702,6 +763,74 @@ export default function AssessmentHubPage() {
                 Note: Typing Mode tests deep architectural reasoning. Ensure at least 2-3 topics are selected for question pool availability.
               </p>
             )}
+          </div>
+
+          {/* Language Policy Selector */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Language Policy <span className="text-rose-500">*</span>
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              {/* English Policy Card */}
+              <button
+                type="button"
+                onClick={() => setLanguageMode('english')}
+                disabled={isGenerating}
+                className={`p-3 rounded-lg border text-left transition-all cursor-pointer ${
+                  languageMode === 'english'
+                    ? 'border-[#0a66c2] bg-blue-50/70 ring-1 ring-[#0a66c2]'
+                    : 'border-slate-200 bg-white hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 mb-1 text-xs font-bold text-slate-900">
+                  <Globe className={`w-3.5 h-3.5 ${languageMode === 'english' ? 'text-[#0a66c2]' : 'text-slate-400'}`} />
+                  <span>English Policy</span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-snug">
+                  English questions and answers expected. Standard language adherence policy.
+                </p>
+              </button>
+
+              {/* Hinglish Policy Card */}
+              <button
+                type="button"
+                onClick={() => setLanguageMode('hinglish')}
+                disabled={isGenerating}
+                className={`p-3 rounded-lg border text-left transition-all cursor-pointer ${
+                  languageMode === 'hinglish'
+                    ? 'border-[#0a66c2] bg-blue-50/70 ring-1 ring-[#0a66c2]'
+                    : 'border-slate-200 bg-white hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 mb-1 text-xs font-bold text-slate-900">
+                  <Globe className={`w-3.5 h-3.5 ${languageMode === 'hinglish' ? 'text-[#0a66c2]' : 'text-slate-400'}`} />
+                  <span>Hinglish Policy</span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-snug">
+                  Roman Hinglish questions. Roman Hinglish &amp; English answers accepted with zero penalty.
+                </p>
+              </button>
+
+              {/* Flexible Policy Card */}
+              <button
+                type="button"
+                onClick={() => setLanguageMode('flexible')}
+                disabled={isGenerating}
+                className={`p-3 rounded-lg border text-left transition-all cursor-pointer ${
+                  languageMode === 'flexible'
+                    ? 'border-[#0a66c2] bg-blue-50/70 ring-1 ring-[#0a66c2]'
+                    : 'border-slate-200 bg-white hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 mb-1 text-xs font-bold text-slate-900">
+                  <Sparkles className={`w-3.5 h-3.5 ${languageMode === 'flexible' ? 'text-[#0a66c2]' : 'text-slate-400'}`} />
+                  <span>Flexible Policy</span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-snug">
+                  Candidate can switch display language. English, Hindi &amp; Hinglish accepted with zero penalty.
+                </p>
+              </button>
+            </div>
           </div>
 
           {/* Question Count & Difficulty in 2 cols */}

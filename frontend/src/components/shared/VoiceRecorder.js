@@ -27,11 +27,12 @@ import {
  */
 export function VoiceRecorder({
   onAppendText,
-  preferredLanguage = 'en',
+  preferredLanguage = 'english',
   disabled = false,
   className = '',
 }) {
-  const recognitionLang = preferredLanguage === 'hinglish' ? 'hi-IN' : 'en-US';
+  const [speechLang, setSpeechLang] = useState('en-IN');
+  const hasFallenBackRef = useRef(false);
 
   const {
     isSupported,
@@ -43,7 +44,7 @@ export function VoiceRecorder({
     stopListening,
     resetTranscript,
   } = useSpeechRecognition({
-    lang: recognitionLang,
+    lang: speechLang,
     continuous: true,
     interimResults: true,
   });
@@ -51,6 +52,24 @@ export function VoiceRecorder({
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [dismissedError, setDismissedError] = useState(null);
   const prevTranscriptRef = useRef('');
+
+  // Handle automatic language fallback if browser speech engine lacks en-IN
+  useEffect(() => {
+    if (error && typeof error === 'string') {
+      const isLangUnsupported =
+        error.toLowerCase().includes('language-not-supported') ||
+        error.toLowerCase().includes('not supported in this browser');
+
+      if (isLangUnsupported && speechLang === 'en-IN' && !hasFallenBackRef.current) {
+        hasFallenBackRef.current = true;
+        setSpeechLang('en-US');
+        // Restart speech recognition automatically with en-US fallback
+        setTimeout(() => {
+          startListening();
+        }, 150);
+      }
+    }
+  }, [error, speechLang, startListening]);
 
   // Timer while listening - no setState calls directly in the effect body
   useEffect(() => {
@@ -62,20 +81,20 @@ export function VoiceRecorder({
   }, [isListening]);
 
   // When new final transcript chunk is recognized, append to parent textarea
-  // If in Hinglish mode, transliterate Devanagari Hindi into natural Roman Hinglish with tech term preservation
+  // If chunk contains Devanagari characters, run safety transliteration; otherwise preserve native Roman output directly
   useEffect(() => {
     if (transcript && transcript !== prevTranscriptRef.current) {
       const addedChunk = transcript.slice(prevTranscriptRef.current.length).trim();
       if (addedChunk && onAppendText) {
-        const textToAppend =
-          preferredLanguage === 'hinglish'
-            ? transliterateDevanagariToRoman(addedChunk)
-            : addedChunk;
+        const hasDevanagari = /[\u0900-\u097F]/.test(addedChunk);
+        const textToAppend = hasDevanagari
+          ? transliterateDevanagariToRoman(addedChunk)
+          : addedChunk;
         onAppendText(textToAppend);
       }
       prevTranscriptRef.current = transcript;
     }
-  }, [transcript, onAppendText, preferredLanguage]);
+  }, [transcript, onAppendText]);
 
   // Reset internal reference when transcript resets
   useEffect(() => {
@@ -151,7 +170,9 @@ export function VoiceRecorder({
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500" />
               </span>
-              <span>Listening in {preferredLanguage === 'hinglish' ? 'Hinglish (Roman output)' : 'English'}...</span>
+              <span>
+                Listening ({speechLang === 'en-IN' ? 'en-IN' : 'en-US'} • Roman output)...
+              </span>
             </div>
           )}
         </div>
@@ -167,7 +188,7 @@ export function VoiceRecorder({
           <Volume2 className="w-3.5 h-3.5 text-[#0a66c2] shrink-0 animate-bounce" />
           <span className="italic line-clamp-1">
             &ldquo;
-            {preferredLanguage === 'hinglish'
+            {/[\u0900-\u097F]/.test(interimTranscript)
               ? transliterateDevanagariToRoman(interimTranscript)
               : interimTranscript}
             &rdquo;

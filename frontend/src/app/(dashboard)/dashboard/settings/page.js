@@ -33,13 +33,13 @@ const AVAILABLE_FOCUS_SKILLS = [
 ];
 
 export default function SettingsPage() {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, isLoading } = useAuth();
 
   const [formData, setFormData] = useState({
     name: user?.name || '',
     email: user?.email || '',
     preferredLanguage: user?.preferredLanguage || 'en',
-    targetRole: user?.careerProfile?.targetRole || 'Full Stack Developer',
+    targetRole: user?.careerProfile?.targetRole || '',
     targetTimeline: user?.careerProfile?.targetTimeline || '3 months',
     currentSkillLevel: user?.careerProfile?.currentSkillLevel || 'beginner',
     focusSkills: Array.isArray(user?.careerProfile?.focusSkills) && user.careerProfile.focusSkills.length > 0
@@ -65,7 +65,7 @@ export default function SettingsPage() {
             name: user.name || '',
             email: user.email || '',
             preferredLanguage: user.preferredLanguage || 'en',
-            targetRole: user.careerProfile?.targetRole || 'Full Stack Developer',
+            targetRole: user.careerProfile?.targetRole || '',
             targetTimeline: user.careerProfile?.targetTimeline || '3 months',
             currentSkillLevel: user.careerProfile?.currentSkillLevel || 'beginner',
             focusSkills: Array.isArray(user.careerProfile?.focusSkills) && user.careerProfile.focusSkills.length > 0
@@ -140,6 +140,17 @@ export default function SettingsPage() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="max-w-4xl mx-auto space-y-6 pb-16 animate-pulse">
+        <div className="h-24 bg-slate-200 rounded-xl" />
+        <div className="h-44 bg-slate-200 rounded-xl" />
+        <div className="h-44 bg-slate-200 rounded-xl" />
+        <div className="h-64 bg-slate-200 rounded-xl" />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-16">
       {/* Page Header */}
@@ -200,6 +211,7 @@ export default function SettingsPage() {
               placeholder="e.g. Alex Johnson"
               error={formErrors.name}
               disabled={saving}
+              maxLength={60}
               required
             />
 
@@ -252,6 +264,7 @@ export default function SettingsPage() {
                 value="en"
                 checked={formData.preferredLanguage === 'en'}
                 onChange={() => setFormData({ ...formData, preferredLanguage: 'en' })}
+                disabled={saving}
                 className="mt-0.5 text-[#0a66c2]"
               />
               <div>
@@ -277,6 +290,7 @@ export default function SettingsPage() {
                 value="hinglish"
                 checked={formData.preferredLanguage === 'hinglish'}
                 onChange={() => setFormData({ ...formData, preferredLanguage: 'hinglish' })}
+                disabled={saving}
                 className="mt-0.5 text-[#0a66c2]"
               />
               <div>

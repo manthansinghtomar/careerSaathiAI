@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 const Assessment = require('../models/Assessment');
 const Question = require('../models/Question');
@@ -64,7 +65,18 @@ const generateAssessment = async (req, res, next) => {
       questionCount = 10,
       difficulty = 'balanced',
       mode = 'mixed',
+      languageMode = 'english',
     } = req.body || {};
+
+    const validDifficulties = ['balanced', 'easy', 'medium', 'hard'];
+    const chosenDifficulty = (difficulty || 'balanced').toLowerCase().trim();
+    if (!validDifficulties.includes(chosenDifficulty)) {
+      return res.status(400).json({
+        success: false,
+        status: 400,
+        message: `Invalid difficulty calibration: '${difficulty}'. Permitted values are: ${validDifficulties.join(', ')}`,
+      });
+    }
 
     const validModes = ['mcq', 'text', 'mixed'];
     if (mode && !validModes.includes(mode)) {
@@ -75,6 +87,16 @@ const generateAssessment = async (req, res, next) => {
       });
     }
     const chosenMode = mode || 'mixed';
+
+    const validLanguageModes = ['english', 'hinglish', 'flexible'];
+    const chosenLanguageMode = (languageMode || 'english').toLowerCase().trim();
+    if (!validLanguageModes.includes(chosenLanguageMode)) {
+      return res.status(400).json({
+        success: false,
+        status: 400,
+        message: `Invalid language mode: '${languageMode}'. Permitted language modes are: ${validLanguageModes.join(', ')}`,
+      });
+    }
 
     const validTopics = ['JavaScript', 'React', 'Node.js', 'MongoDB'];
     if (!Array.isArray(selectedTopics) || selectedTopics.length === 0) {
@@ -109,49 +131,63 @@ const generateAssessment = async (req, res, next) => {
     }
 
     const candidateQuestions = await Question.find(questionFilter).select('+correctAnswer');
+    const modeLabel = chosenMode === 'mcq' ? 'MCQ ' : chosenMode === 'text' ? 'text/descriptive ' : '';
 
     if (candidateQuestions.length < requestedCount) {
-      const modeLabel = chosenMode === 'mcq' ? 'MCQ ' : chosenMode === 'text' ? 'text/descriptive ' : '';
       return res.status(400).json({
         success: false,
         status: 400,
         message: `Not enough active ${modeLabel}questions available for selected topics. Available: ${candidateQuestions.length}, Requested: ${requestedCount}`,
+        availableCount: candidateQuestions.length,
+        requestedCount,
       });
     }
 
-    // Balanced distribution or randomized sampling
+    // Sampling based on difficulty calibration
     let selectedQuestions = [];
-    if (difficulty === 'balanced') {
+    const shuffle = (arr) => arr.slice().sort(() => Math.random() - 0.5);
+
+    if (chosenDifficulty === 'balanced') {
       const easyPool = candidateQuestions.filter((q) => q.difficulty === 'easy');
       const mediumPool = candidateQuestions.filter((q) => q.difficulty === 'medium');
       const hardPool = candidateQuestions.filter((q) => q.difficulty === 'hard');
 
-      const shuffle = (arr) => arr.slice().sort(() => Math.random() - 0.5);
+      // Exact integer rounding for 40% Easy, 40% Medium, 20% Hard
+      const targetEasy = Math.round(requestedCount * 0.40);
+      const targetMedium = Math.round(requestedCount * 0.40);
+      const targetHard = requestedCount - targetEasy - targetMedium;
+
+      // Strict tier sufficiency verification: no silent substitution or mislabeling
+      if (easyPool.length < targetEasy || mediumPool.length < targetMedium || hardPool.length < targetHard) {
+        return res.status(400).json({
+          success: false,
+          status: 400,
+          message: `Unable to satisfy balanced difficulty distribution (40% Easy, 40% Medium, 20% Hard). Required: ${targetEasy} Easy, ${targetMedium} Medium, ${targetHard} Hard. Available in selected topic(s): ${easyPool.length} Easy, ${mediumPool.length} Medium, ${hardPool.length} Hard. Please select additional topics or lower the question count.`,
+          requiredDistribution: { easy: targetEasy, medium: targetMedium, hard: targetHard },
+          availableDistribution: { easy: easyPool.length, medium: mediumPool.length, hard: hardPool.length },
+        });
+      }
 
       const shuffledEasy = shuffle(easyPool);
       const shuffledMedium = shuffle(mediumPool);
       const shuffledHard = shuffle(hardPool);
 
-      const targetEasy = Math.max(1, Math.floor(requestedCount * 0.4));
-      const targetMedium = Math.max(1, Math.floor(requestedCount * 0.4));
-      const targetHard = Math.max(0, requestedCount - targetEasy - targetMedium);
-
       selectedQuestions.push(...shuffledEasy.slice(0, targetEasy));
       selectedQuestions.push(...shuffledMedium.slice(0, targetMedium));
       selectedQuestions.push(...shuffledHard.slice(0, targetHard));
-
-      // Fill remaining if pools had insufficient counts in any specific tier
-      if (selectedQuestions.length < requestedCount) {
-        const selectedIds = new Set(selectedQuestions.map((q) => q._id.toString()));
-        const remainingPool = shuffle(candidateQuestions.filter((q) => !selectedIds.has(q._id.toString())));
-        const needed = requestedCount - selectedQuestions.length;
-        selectedQuestions.push(...remainingPool.slice(0, needed));
-      }
     } else {
-      // Filter by specific requested difficulty if specified
-      const filteredPool = candidateQuestions.filter((q) => q.difficulty === difficulty);
-      const pool = filteredPool.length >= requestedCount ? filteredPool : candidateQuestions;
-      selectedQuestions = pool.slice().sort(() => Math.random() - 0.5).slice(0, requestedCount);
+      // Strict filtering by requested difficulty - NEVER substitute from other tiers
+      const filteredPool = candidateQuestions.filter((q) => q.difficulty === chosenDifficulty);
+      if (filteredPool.length < requestedCount) {
+        return res.status(400).json({
+          success: false,
+          status: 400,
+          message: `Not enough active ${modeLabel}${chosenDifficulty} questions available for selected topics. Available: ${filteredPool.length}, Requested: ${requestedCount}`,
+          availableCount: filteredPool.length,
+          requestedCount,
+        });
+      }
+      selectedQuestions = shuffle(filteredPool).slice(0, requestedCount);
     }
 
     // Final shuffle so questions are interspersed across topics
@@ -196,6 +232,7 @@ const generateAssessment = async (req, res, next) => {
       targetRole: targetRole.trim(),
       selectedTopics,
       mode: chosenMode,
+      languageMode: chosenLanguageMode,
       status: 'in_progress',
       questions: questionSnapshots,
       totalQuestions: questionSnapshots.length,
@@ -556,6 +593,7 @@ const getAssessmentResults = async (req, res, next) => {
         targetRole: assessment.targetRole,
         selectedTopics: assessment.selectedTopics,
         mode: assessment.mode || 'mixed',
+        languageMode: assessment.languageMode || 'english',
         completedAt: assessment.completedAt,
         scoring: assessment.scoring,
         topicWiseResults: assessment.topicWiseResults,
@@ -684,10 +722,11 @@ const evaluateAssessment = async (req, res, next) => {
       });
     }
 
-    // Concurrency Lock: Atomically set isEvaluating = true
+    // Concurrency Lock: Atomically set isEvaluating = true with unique ownership token
+    const lockToken = crypto.randomUUID();
     const lockedAssessment = await Assessment.findOneAndUpdate(
       { _id: id, status: 'completed', isEvaluating: false },
-      { $set: { isEvaluating: true } },
+      { $set: { isEvaluating: true, evaluationLockToken: lockToken, lockedAt: new Date() } },
       { returnDocument: 'after' }
     ).select('+questions.correctAnswer');
 
@@ -736,11 +775,14 @@ const evaluateAssessment = async (req, res, next) => {
                 : JSON.stringify(req.body.mockResponse);
           }
 
+          const activeLanguageMode = lockedAssessment.languageMode || 'english';
+
           const evalResult = await evaluateTextAnswer({
             questionText: q.content?.en?.question || '',
             rubricReference: q.correctAnswer || '',
             studentAnswer: q.studentAnswer || '',
-            preferredLanguage: studentUser.preferredLanguage || 'en',
+            languageMode: activeLanguageMode,
+            preferredLanguage: activeLanguageMode,
             topic: q.topic || 'General',
             maxPoints: q.maxPoints || 1,
             transportOverride: transport,
@@ -879,9 +921,19 @@ const evaluateAssessment = async (req, res, next) => {
 
       lockedAssessment.topicWiseResults = topicWiseResults;
       lockedAssessment.weakTopics = weakTopics;
-      lockedAssessment.isEvaluating = false;
 
       await lockedAssessment.save();
+
+      // Release lock atomically matching this exact request's lockToken
+      await Assessment.findOneAndUpdate(
+        { _id: id, evaluationLockToken: lockToken },
+        { $set: { isEvaluating: false, evaluationLockToken: null, lockedAt: null } }
+      );
+
+      // Clean local in-memory representation for response
+      lockedAssessment.isEvaluating = false;
+      lockedAssessment.evaluationLockToken = null;
+      lockedAssessment.lockedAt = null;
 
       safeDispatchNotification({
         recipient: lockedAssessment.student,
@@ -895,18 +947,53 @@ const evaluateAssessment = async (req, res, next) => {
         idempotencyKey: `assessment_evaluated:${lockedAssessment._id}:${lockedAssessment.scoring?.isFullyEvaluated ? 'final' : 'partial'}`,
       });
 
+      // Case 1: Complete failure (all attempted evaluations failed)
+      if (evaluatedCount === 0 && failedCount > 0) {
+        const primaryError = evaluationErrors[0]?.error || 'Upstream AI evaluation service unavailable';
+        return res.status(502).json({
+          success: false,
+          status: 502,
+          message: `AI evaluation failed: ${primaryError}. Your submitted answers have been preserved. Please retry shortly.`,
+          evaluatedCount: 0,
+          failedCount,
+          isFullyEvaluated: false,
+          errors: evaluationErrors,
+          data: lockedAssessment,
+        });
+      }
+
+      // Case 2: Partial success (some evaluated, some failed)
+      if (evaluatedCount > 0 && failedCount > 0) {
+        return res.status(200).json({
+          success: true,
+          partial: true,
+          message: `Partial evaluation completed: ${evaluatedCount} answer(s) evaluated; ${failedCount} answer(s) failed and remain pending for retry.`,
+          evaluatedCount,
+          failedCount,
+          isFullyEvaluated: false,
+          errors: evaluationErrors,
+          data: lockedAssessment,
+        });
+      }
+
+      // Case 3: Complete success
       res.status(200).json({
         success: true,
         message: 'Assessment evaluated successfully',
         evaluatedCount,
-        failedCount,
+        failedCount: 0,
         isFullyEvaluated,
-        errors: evaluationErrors,
+        errors: [],
         data: lockedAssessment,
       });
     } finally {
-      // Guaranteed lock release in case of any unhandled error
-      await Assessment.findByIdAndUpdate(id, { $set: { isEvaluating: false } });
+      // Guaranteed lock release matching this exact token, preventing an old request from clearing another's lock
+      if (lockToken) {
+        await Assessment.findOneAndUpdate(
+          { _id: id, evaluationLockToken: lockToken },
+          { $set: { isEvaluating: false, evaluationLockToken: null, lockedAt: null } }
+        );
+      }
     }
   } catch (error) {
     next(error);

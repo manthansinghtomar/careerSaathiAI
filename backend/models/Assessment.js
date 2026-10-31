@@ -21,7 +21,7 @@ const aiEvaluationSchema = new mongoose.Schema(
     languagePenalty: { type: Number, default: 0 },
     detectedLanguage: { type: String, default: 'en' },
     languageWarning: { type: String, default: null },
-    evaluatedLanguage: { type: String, enum: ['en', 'hinglish'], default: 'en' },
+    evaluatedLanguage: { type: String, enum: ['en', 'hinglish', 'english', 'flexible'], default: 'english' },
     modelUsed: { type: String, default: 'gemini-3.8-flash' },
     evaluatedAt: { type: Date, default: Date.now },
   },
@@ -141,6 +141,12 @@ const assessmentSchema = new mongoose.Schema(
       default: 'mixed',
       index: true,
     },
+    languageMode: {
+      type: String,
+      enum: ['english', 'hinglish', 'flexible'],
+      default: 'english',
+      index: true,
+    },
     status: {
       type: String,
       enum: ['in_progress', 'completed', 'abandoned'],
@@ -225,6 +231,9 @@ assessmentSchema.index({ student: 1, status: 1, completedAt: -1 });
  */
 assessmentSchema.methods.toSafeTakingJSON = function () {
   const obj = this.toObject();
+
+  // Ensure backward compatibility: treat missing languageMode as 'english'
+  obj.languageMode = obj.languageMode || 'english';
 
   // Strip top-level scoring and evaluation results if in-progress
   if (obj.status === 'in_progress') {

@@ -260,7 +260,7 @@ async function runAllTests() {
       body: JSON.stringify({ isActive: true }),
     });
 
-    // Populate additional test questions for assessment generation (minimum 5 total)
+    // Populate additional test questions for assessment generation (minimum 5 total with balanced difficulty distribution)
     const extraQuestions = [
       {
         topic: 'JavaScript',
@@ -268,6 +268,14 @@ async function runAllTests() {
         type: 'mcq',
         content: { en: { question: 'What is event delegation?' } },
         options: [{ id: 'A', text: { en: 'Bubbling listener' } }, { id: 'B', text: { en: 'Capture only' } }],
+        correctAnswer: 'A',
+      },
+      {
+        topic: 'React',
+        difficulty: 'medium',
+        type: 'mcq',
+        content: { en: { question: 'What is the purpose of React.memo?' } },
+        options: [{ id: 'A', text: { en: 'Memoizes component rendering' } }, { id: 'B', text: { en: 'State store' } }],
         correctAnswer: 'A',
       },
       {
@@ -292,6 +300,22 @@ async function runAllTests() {
         type: 'mcq',
         content: { en: { question: 'Operator for setting a value?' } },
         options: [{ id: 'A', text: { en: '$set' } }, { id: 'B', text: { en: '$put' } }],
+        correctAnswer: 'A',
+      },
+      {
+        topic: 'MongoDB',
+        difficulty: 'hard',
+        type: 'mcq',
+        content: { en: { question: 'Which index type supports geospatial queries?' } },
+        options: [{ id: 'A', text: { en: '2dsphere' } }, { id: 'B', text: { en: 'hashed' } }],
+        correctAnswer: 'A',
+      },
+      {
+        topic: 'Node.js',
+        difficulty: 'hard',
+        type: 'mcq',
+        content: { en: { question: 'Which internal C++ library handles asynchronous I/O in Node?' } },
+        options: [{ id: 'A', text: { en: 'libuv' } }, { id: 'B', text: { en: 'v8' } }],
         correctAnswer: 'A',
       },
     ];

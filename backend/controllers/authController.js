@@ -238,7 +238,13 @@ const updateProfile = async (req, res, next) => {
       user.preferredLanguage = preferredLanguage;
     }
 
-    if (targetRole) user.careerProfile.targetRole = targetRole;
+    if (!user.careerProfile) {
+      user.careerProfile = {};
+    }
+
+    if (targetRole !== undefined) {
+      user.careerProfile.targetRole = typeof targetRole === 'string' ? targetRole.trim() : '';
+    }
     if (targetTimeline) user.careerProfile.targetTimeline = targetTimeline;
     if (currentSkillLevel && ['beginner', 'intermediate', 'advanced'].includes(currentSkillLevel)) {
       user.careerProfile.currentSkillLevel = currentSkillLevel;

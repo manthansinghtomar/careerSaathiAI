@@ -38,6 +38,14 @@ import {
   ScrollText,
 } from 'lucide-react';
 
+function formatSafeScore(val) {
+  if (val === null || val === undefined || typeof val === 'boolean') return null;
+  if (typeof val === 'string' && val.trim() === '') return null;
+  const num = Number(val);
+  if (!Number.isFinite(num)) return null;
+  return Math.round(num);
+}
+
 export default function StudentDashboardPage() {
   const { user } = useAuth();
   useHeartbeat('dashboard_learning');
@@ -877,6 +885,12 @@ export default function StudentDashboardPage() {
 
   const { kpis, streak, activity, weakTopics = [], strongTopics = [], recentAssessments = [] } = dashboardData || {};
 
+  const rawTargetRole = user?.careerProfile?.targetRole;
+  const studentTargetRole =
+    typeof rawTargetRole === 'string' && rawTargetRole.trim().length > 0
+      ? rawTargetRole.trim()
+      : 'Not specified';
+
   return (
     <div className="space-y-6">
       {/* Welcome Banner */}
@@ -892,7 +906,7 @@ export default function StudentDashboardPage() {
               </Badge>
             </div>
             <p className="text-sm text-slate-600">
-              Target Role: <strong className="text-slate-900 font-semibold">{user?.careerProfile?.targetRole || 'Full Stack Developer'}</strong>
+              Target Role: <strong className="text-slate-900 font-semibold">{studentTargetRole}</strong>
               {activity?.lastAssessmentDate && (
                 <span className="text-slate-400 ml-2">
                   • Last active {formatDate(activity.lastAssessmentDate)}
@@ -1044,12 +1058,18 @@ export default function StudentDashboardPage() {
               {recentAssessments.map((a, idx) => {
                 const assessmentId = a.assessmentId || a._id;
                 const isInProgress = a.status === 'in_progress';
-                const hasScore = a.scoring?.overallPercentage !== undefined && a.scoring?.overallPercentage !== null;
+                const isFullyEvaluated = Boolean(a.isFullyEvaluated ?? a.scoring?.isFullyEvaluated);
+                const safeOverall = formatSafeScore(a.scoring?.overallPercentage);
+                const safeObjective = formatSafeScore(a.scoring?.objectivePercentage);
+                const assessmentRole =
+                  typeof a.targetRole === 'string' && a.targetRole.trim().length > 0
+                    ? a.targetRole.trim()
+                    : 'General Assessment';
 
                 return (
                   <TableRow key={assessmentId || `recent-${idx}`}>
                     <TableCell className="font-semibold text-slate-900">
-                      {a.targetRole || 'Full Stack Developer'}
+                      {assessmentRole}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1 max-w-xs">
@@ -1074,11 +1094,18 @@ export default function StudentDashboardPage() {
                     </TableCell>
                     <TableCell>
                       {isInProgress ? (
-                        <span className="text-xs text-slate-400 italic">Not evaluated</span>
-                      ) : (
+                        <span className="text-xs text-slate-400 italic">In Progress</span>
+                      ) : isFullyEvaluated ? (
                         <span className="font-semibold text-slate-900">
-                          {hasScore ? `${a.scoring.overallPercentage}%` : 'Pending'}
+                          {safeOverall !== null ? `${safeOverall}%` : '—'}
                         </span>
+                      ) : safeObjective !== null ? (
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-slate-900">{safeObjective}%</span>
+                          <span className="text-[10px] text-amber-600 font-medium">Provisional (MCQ)</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-amber-600 font-medium">Evaluation Pending</span>
                       )}
                     </TableCell>
                     <TableCell className="text-xs text-slate-500">
@@ -1093,7 +1120,7 @@ export default function StudentDashboardPage() {
                         </Link>
                       ) : (
                         <Link href={`/dashboard/assessments/${assessmentId}/results`}>
-                          <Button size="sm" variant="secondary">
+                          <Button size="sm" variant="secondary" icon={ArrowRight}>
                             View Results
                           </Button>
                         </Link>

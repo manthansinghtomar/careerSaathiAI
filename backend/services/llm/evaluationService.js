@@ -33,18 +33,34 @@ const buildEvaluationPrompt = ({
   questionText,
   rubricReference,
   studentAnswer,
-  preferredLanguage = 'en',
+  languageMode,
+  preferredLanguage = 'english',
   topic = 'Technical',
 }) => {
-  const isHinglish = preferredLanguage === 'hinglish';
+  const normMode = String(languageMode || preferredLanguage || 'english').toLowerCase().trim();
+  const isHinglish = normMode === 'hinglish';
+  const isFlexible = normMode === 'flexible';
 
-  const languageInstructions = isHinglish
-    ? `IMPORTANT LANGUAGE REQUIREMENT:
-The candidate's preferred language is Hinglish (Hindi written in Roman/English script).
+  let languageInstructions;
+  if (isHinglish) {
+    languageInstructions = `IMPORTANT LANGUAGE REQUIREMENT:
+The candidate's selected assessment mode is Hinglish (Hindi written in Roman/English script).
+Accept answers written in conversational Roman-script Hinglish or English.
+Evaluate strictly on engineering accuracy, factual understanding, and reasoning regardless of language style.
 Write all 'feedback', 'strengths', 'weaknesses', and 'suggestions' in conversational, natural Roman-script Hinglish.
-Example: "Aapne closure ka concept ache se samjhaya, lekin outer function ke garbage collection aur memory cleanup ka point miss ho gaya. removeEventListener ka use karke isko aur behtar banaya ja sakta hai."`
-    : `LANGUAGE REQUIREMENT:
+Example: "Aapne closure ka concept ache se samjhaya, lekin outer function ke garbage collection aur memory cleanup ka point miss ho gaya. removeEventListener ka use karke isko aur behtar banaya ja sakta hai."`;
+  } else if (isFlexible) {
+    languageInstructions = `IMPORTANT LANGUAGE REQUIREMENT:
+The candidate's selected assessment mode is Flexible (Multilingual).
+Accept answers in professional English, Roman-script Hinglish, or Devanagari Hindi.
+Evaluate strictly on engineering accuracy, factual understanding, and reasoning regardless of language or script. Do NOT penalize or reduce scores for the candidate's language choice.
 Write all 'feedback', 'strengths', 'weaknesses', and 'suggestions' in professional, clear technical English.`;
+  } else {
+    languageInstructions = `LANGUAGE REQUIREMENT:
+The assessment mode expects technical English.
+CRITICAL: Score the candidate's answer on the rubric dimensions (technicalCorrectness, conceptualUnderstanding, completeness, reasoning, answerRelevance) strictly based on factual and conceptual merit alone. Do not reduce rubric scores for language adherence here, as language adherence is evaluated separately by the system.
+Write all 'feedback', 'strengths', 'weaknesses', and 'suggestions' in professional, clear technical English.`;
+  }
 
   return `You are CareerSaathi AI's Senior Technical Interviewer evaluating a candidate for a Full Stack Developer role.
 Assess the candidate's subjective technical answer strictly against the provided Technical Reference Rubric.
@@ -184,18 +200,26 @@ const evaluateTextAnswer = async ({
   questionText,
   rubricReference,
   studentAnswer,
-  preferredLanguage = 'en',
+  languageMode,
+  preferredLanguage = 'english',
   topic = 'Technical',
   maxPoints = 1,
   transportOverride,
   providerOverride,
 }) => {
+  const explicitLanguageMode = languageMode ? String(languageMode).toLowerCase().trim() : null;
+  const legacyPref = preferredLanguage ? String(preferredLanguage).toLowerCase().trim() : 'english';
+  const normMode = explicitLanguageMode || (legacyPref === 'en' ? 'en' : legacyPref);
+  const activePromptMode = normMode === 'en' ? 'english' : normMode;
+  const activeMode = activePromptMode;
+
   const provider = getActiveProvider(providerOverride);
   const prompt = buildEvaluationPrompt({
     questionText,
     rubricReference,
     studentAnswer,
-    preferredLanguage,
+    languageMode: activePromptMode,
+    preferredLanguage: activePromptMode,
     topic,
   });
 
@@ -229,21 +253,21 @@ const evaluateTextAnswer = async ({
   );
 
   // 2. Perform authoritative language validation
-  const langResult = detectAnswerLanguage(studentAnswer, preferredLanguage);
+  const langResult = detectAnswerLanguage(studentAnswer, activeMode);
 
   let languagePenalty = 0;
   let languageMismatch = false;
   let languageWarning = null;
   let feedbackExplanation = '';
 
-  if (preferredLanguage === 'en' && langResult.status === 'mismatch') {
+  if (activeMode === 'english' && langResult.status === 'mismatch') {
     // Confirmed mismatch: English mode selected, but answer was predominantly Hindi/Hinglish
     languageMismatch = true;
     languagePenalty = LANGUAGE_MISMATCH_PENALTY_PERCENTAGE;
     languageWarning =
       'Selected assessment mode requires English, but this answer was identified as Hindi/Hinglish.';
     feedbackExplanation = `\n\n[Language Adherence Deduction]: Selected mode requires English, but this answer was identified as Hindi/Hinglish. A ${languagePenalty}% language deduction was applied (Raw technical score: ${rawPercentage}% → Adjusted score: ${Math.max(0, rawPercentage - languagePenalty)}%).`;
-  } else if (preferredLanguage === 'en' && langResult.status === 'uncertain' && langResult.details?.hindiMarkers > 0) {
+  } else if (activeMode === 'english' && langResult.status === 'uncertain' && langResult.details?.hindiMarkers > 0) {
     // Uncertain detection: Non-punitive warning without marks deduction
     languageWarning =
       'Language adherence could not be definitively confirmed. No score deduction was applied.';
@@ -274,8 +298,8 @@ const evaluateTextAnswer = async ({
     languagePenalty,
     detectedLanguage: langResult.detectedLanguage,
     languageWarning,
-    evaluatedLanguage: preferredLanguage === 'hinglish' ? 'hinglish' : 'en',
-    modelUsed: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+    evaluatedLanguage: explicitLanguageMode || (legacyPref === 'en' ? 'en' : activePromptMode),
+    modelUsed: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     evaluatedAt: new Date(),
   };
 };

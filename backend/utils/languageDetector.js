@@ -124,9 +124,13 @@ function detectAnswerLanguage(text, expectedLanguage = 'en') {
     totalWords: cleanTokens.length,
   };
 
-  // If candidate is in Hinglish mode:
-  // In Hinglish mode, Hindi, Hinglish, and English technical terms are all accepted.
-  if (expectedLanguage === 'hinglish') {
+  const normExpected = String(expectedLanguage || 'english').toLowerCase().trim();
+  const isHinglish = normExpected === 'hinglish';
+  const isFlexible = normExpected === 'flexible';
+
+  // If candidate is in Flexible mode:
+  // English, Roman Hinglish, and Devanagari Hindi answers are all accepted with zero penalty.
+  if (isFlexible) {
     return {
       detectedLanguage: hindiMarkersCount > 0 ? 'hinglish' : 'en',
       status: 'match',
@@ -136,7 +140,19 @@ function detectAnswerLanguage(text, expectedLanguage = 'en') {
     };
   }
 
-  // If candidate is in English mode:
+  // If candidate is in Hinglish mode:
+  // In Hinglish mode, Hindi, Hinglish, and English technical terms are all accepted with zero penalty.
+  if (isHinglish) {
+    return {
+      detectedLanguage: hindiMarkersCount > 0 ? 'hinglish' : 'en',
+      status: 'match',
+      confidence: 1.0,
+      details,
+      warningMessage: null,
+    };
+  }
+
+  // If candidate is in English mode (or legacy 'en'):
   // Evaluate if there is a genuine language mismatch (predominantly Hindi/Hinglish).
 
   // Case 1: Pure technical vocabulary or very short snippet without enough grammatical glue

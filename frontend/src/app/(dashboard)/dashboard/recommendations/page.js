@@ -159,7 +159,7 @@ export default function RecommendationsPage() {
     practiceAssessments = [],
   } = recommendation || {};
 
-  const isAiGenerated = source === 'ai_generated';
+  const isAiGenerated = source === 'ai' || source === 'ai_generated';
   const weakTopics = performanceSnapshot.weakTopics || [];
   const strongTopics = performanceSnapshot.strongTopics || [];
 
@@ -173,12 +173,14 @@ export default function RecommendationsPage() {
               <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
                 Personalized Learning Recommendations
               </h1>
-              <Badge variant={isAiGenerated ? 'primary' : 'warning'} size="sm" dot>
-                {isAiGenerated ? 'AI Calibrated' : 'Rule-Based Fallback'}
+              <Badge variant={isAiGenerated ? 'primary' : 'default'} size="sm" dot>
+                {isAiGenerated ? 'AI Personalized' : 'Curriculum Guided'}
               </Badge>
             </div>
             <p className="text-sm text-slate-600">
-              Tailored preparation advice based on your verified performance in {profileSnapshot.targetRole || 'Full Stack Developer'}.
+              {isAiGenerated
+                ? `Personalized study plan calibrated to your assessment performance in ${profileSnapshot.targetRole || 'Full Stack Developer'}.`
+                : `Curriculum-guided study plan structured around syllabus benchmarks for ${profileSnapshot.targetRole || 'Full Stack Developer'}.`}
             </p>
           </div>
 
@@ -202,11 +204,11 @@ export default function RecommendationsPage() {
             <Clock className="w-3.5 h-3.5 text-slate-400" />
             Generated {formatDate(generatedAt)} {isCached ? '(Cached)' : '(Freshly Generated)'}
           </span>
-          {modelUsed && (
-            <span className="text-[11px] text-slate-400">
-              Engine: {modelUsed} {fallbackReason ? `• ${fallbackReason}` : ''}
-            </span>
-          )}
+          <span className="text-[11px] text-slate-400">
+            {isAiGenerated
+              ? 'Powered by CareerSaathi AI Engine'
+              : 'Curated using CareerSaathi Syllabus Benchmarks'}
+          </span>
         </div>
       </div>
 
@@ -329,11 +331,11 @@ export default function RecommendationsPage() {
                     {item.reason}
                   </p>
 
-                  {item.recommendedFocus && (
+                  {(item.suggestedFocus || item.recommendedFocus) && (
                     <div className="pt-2 border-t border-slate-100/80 text-[11px]">
                       <span className="font-semibold text-slate-600 block mb-0.5">Key Concepts to Revise:</span>
                       <span className="text-slate-700 bg-slate-100/80 px-2 py-1 rounded block">
-                        {item.recommendedFocus}
+                        {item.suggestedFocus || item.recommendedFocus}
                       </span>
                     </div>
                   )}
@@ -355,36 +357,92 @@ export default function RecommendationsPage() {
           </div>
 
           <div className="space-y-3">
-            {nextActions.map((action, i) => (
-              <div
-                key={i}
-                className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-900 text-sm">{action.title}</span>
-                    <Badge variant={action.priority === 'high' ? 'danger' : 'info'} size="sm">
-                      {action.priority || 'Action'}
-                    </Badge>
-                    {action.estimatedMinutes && (
-                      <span className="text-slate-500 flex items-center gap-1 text-[11px]">
-                        <Clock className="w-3.5 h-3.5 text-slate-400" />
-                        ~{action.estimatedMinutes} mins
-                      </span>
+            {nextActions.map((action, i) => {
+              const actionText =
+                (typeof action?.action === 'string' && action.action.trim()) ||
+                (typeof action?.title === 'string' && action.title.trim()) ||
+                (typeof action === 'string' && action.trim()) ||
+                null;
+
+              const secondaryDescription =
+                typeof action?.description === 'string' &&
+                action.description.trim() &&
+                action.description.trim() !== actionText
+                  ? action.description.trim()
+                  : null;
+
+              const categoryStr =
+                (typeof action?.category === 'string' && action.category.toLowerCase().trim()) || '';
+              const priorityStr =
+                (typeof action?.priority === 'string' && action.priority.toLowerCase().trim()) || '';
+
+              let badgeVariant = 'default';
+              let badgeLabel = 'ACTION';
+
+              if (categoryStr === 'practice') {
+                badgeVariant = 'primary';
+                badgeLabel = 'PRACTICE';
+              } else if (categoryStr === 'study') {
+                badgeVariant = 'info';
+                badgeLabel = 'STUDY';
+              } else if (categoryStr === 'revision') {
+                badgeVariant = 'success';
+                badgeLabel = 'REVISION';
+              } else if (priorityStr === 'high') {
+                badgeVariant = 'danger';
+                badgeLabel = 'HIGH PRIORITY';
+              } else if (priorityStr === 'medium') {
+                badgeVariant = 'warning';
+                badgeLabel = 'MEDIUM PRIORITY';
+              } else if (priorityStr) {
+                badgeVariant = 'default';
+                badgeLabel = priorityStr.toUpperCase();
+              }
+
+              const minutes =
+                typeof action?.estimatedMinutes === 'number' && !isNaN(action.estimatedMinutes)
+                  ? action.estimatedMinutes
+                  : null;
+
+              return (
+                <div
+                  key={i}
+                  className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs"
+                >
+                  <div className="space-y-1.5 max-w-2xl">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant={badgeVariant} size="sm">
+                        {badgeLabel}
+                      </Badge>
+                      {minutes && (
+                        <span className="text-slate-500 flex items-center gap-1 text-[11px]">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          ~{minutes} mins
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="font-semibold text-slate-900 text-sm leading-snug">
+                      {actionText || 'Standard curriculum practice recommendation'}
+                    </p>
+
+                    {secondaryDescription && (
+                      <p className="text-slate-600 leading-relaxed text-xs">
+                        {secondaryDescription}
+                      </p>
                     )}
                   </div>
-                  <p className="text-slate-600 leading-relaxed">{action.description}</p>
-                </div>
 
-                <div className="shrink-0">
-                  <Link href="/dashboard/assessments">
-                    <Button size="sm" variant="secondary" icon={ArrowRight}>
-                      Practice
-                    </Button>
-                  </Link>
+                  <div className="shrink-0 self-start sm:self-center">
+                    <Link href="/dashboard/assessments">
+                      <Button size="sm" variant="secondary" icon={ArrowRight}>
+                        Practice
+                      </Button>
+                    </Link>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

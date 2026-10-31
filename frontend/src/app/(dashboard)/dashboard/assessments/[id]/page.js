@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useAuth } from '@/hooks/useAuth';
 import { api, ApiError } from '@/lib/api';
 import { formatDuration } from '@/lib/utils';
 import { useHeartbeat } from '@/hooks/useHeartbeat';
@@ -30,12 +31,24 @@ export default function AssessmentTakingPage() {
   const router = useRouter();
   const assessmentId = params?.id;
 
-  // Active learning heartbeat tracking
-  useHeartbeat('assessment');
+  const { user, isLoading: authLoading } = useAuth();
+  const userRole = user?.role;
+  const isStudent = userRole === 'student';
 
   const [assessment, setAssessment] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Active learning heartbeat tracking: only enabled when an in-progress assessment is loaded for a student
+  const isHeartbeatEligible = !loading && !error && assessment?.status === 'in_progress' && isStudent;
+  useHeartbeat('assessment', { enabled: isHeartbeatEligible });
+
+  // Role Guard: Prevent trainers and admins from using the student assessment-taking interface
+  useEffect(() => {
+    if (!authLoading && user && user.role !== 'student') {
+      router.replace('/dashboard/assessments');
+    }
+  }, [authLoading, user, router]);
 
   // Taking state
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -49,6 +62,7 @@ export default function AssessmentTakingPage() {
   const [submitError, setSubmitError] = useState(null);
 
   const storageKey = `careerSaathi_assessment_${assessmentId}_answers`;
+  const displayLangStorageKey = `careerSaathi_assessment_${assessmentId}_display_lang`;
 
   const [reloadIndex, setReloadIndex] = useState(0);
 
@@ -69,6 +83,25 @@ export default function AssessmentTakingPage() {
             }
 
             setAssessment(data);
+
+            // Initialize display language based on assessment languageMode policy
+            const mode = data.languageMode || 'english';
+            if (mode === 'hinglish') {
+              setLanguage('hinglish');
+            } else if (mode === 'english') {
+              setLanguage('en');
+            } else if (mode === 'flexible') {
+              let savedDisplay = 'en';
+              if (typeof window !== 'undefined') {
+                try {
+                  const val = sessionStorage.getItem(displayLangStorageKey);
+                  if (val === 'hinglish' || val === 'en') {
+                    savedDisplay = val;
+                  }
+                } catch (_) {}
+              }
+              setLanguage(savedDisplay);
+            }
 
             const initialAnswers = {};
             if (Array.isArray(data.questions)) {
@@ -117,7 +150,18 @@ export default function AssessmentTakingPage() {
     return () => {
       ignore = true;
     };
-  }, [assessmentId, router, storageKey, reloadIndex]);
+  }, [assessmentId, router, storageKey, displayLangStorageKey, reloadIndex]);
+
+  const handleToggleDisplayLanguage = () => {
+    if (assessment?.languageMode !== 'flexible') return;
+    const next = language === 'en' ? 'hinglish' : 'en';
+    setLanguage(next);
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem(displayLangStorageKey, next);
+      } catch (_) {}
+    }
+  };
 
   const handleRetry = () => {
     setLoading(true);
@@ -125,13 +169,21 @@ export default function AssessmentTakingPage() {
     setReloadIndex((prev) => prev + 1);
   };
 
-  // Elapsed timer tick
+  // Elapsed timer tick: accurately derived from authoritative startedAt timestamp
   useEffect(() => {
     if (loading || error || !assessment || assessment.status === 'completed') return;
 
-    const timer = setInterval(() => {
-      setElapsedSeconds((prev) => prev + 1);
-    }, 1000);
+    const computeElapsed = () => {
+      if (!assessment.startedAt) return;
+      const startedMs = new Date(assessment.startedAt).getTime();
+      if (isNaN(startedMs)) return;
+      const nowMs = Date.now();
+      const elapsed = Math.max(0, Math.floor((nowMs - startedMs) / 1000));
+      setElapsedSeconds(elapsed);
+    };
+
+    computeElapsed();
+    const timer = setInterval(computeElapsed, 1000);
 
     return () => clearInterval(timer);
   }, [loading, error, assessment]);
@@ -175,8 +227,10 @@ export default function AssessmentTakingPage() {
     return opt.text?.en || '';
   };
 
-  // Submission handler
+  // Submission handler with ambiguous-failure recovery
   const handleSubmitAssessment = async () => {
+    if (isSubmitting) return;
+
     try {
       setIsSubmitting(true);
       setSubmitError(null);
@@ -192,23 +246,55 @@ export default function AssessmentTakingPage() {
       });
 
       if (res?.success) {
-        // Clear local storage backup upon successful submission
+        // Clear local storage and session storage backups upon successful submission
         if (typeof window !== 'undefined') {
-          localStorage.removeItem(storageKey);
+          try {
+            localStorage.removeItem(storageKey);
+            sessionStorage.removeItem(displayLangStorageKey);
+          } catch (_) {}
         }
         setIsSubmitModalOpen(false);
         router.push(`/dashboard/assessments/${assessmentId}/results`);
+        return;
       } else {
         throw new ApiError('Failed to submit assessment.');
       }
     } catch (err) {
+      // Recovery check for ambiguous submission failure (e.g. prior request succeeded on server
+      // but client lost response due to network disconnect/timeout, returning 400 "already submitted")
+      const errMsg = (err?.message || '').toLowerCase();
+      const isAlreadySubmitted =
+        errMsg.includes('already been submitted') ||
+        errMsg.includes('already submitted') ||
+        errMsg.includes('being processed');
+
+      if (isAlreadySubmitted || err?.status === 400) {
+        try {
+          // Authoritatively verify server status before navigating
+          const checkRes = await api.get(`/assessments/${assessmentId}`);
+          if (checkRes?.success && checkRes?.data?.status === 'completed') {
+            if (typeof window !== 'undefined') {
+              try {
+                localStorage.removeItem(storageKey);
+                sessionStorage.removeItem(displayLangStorageKey);
+              } catch (_) {}
+            }
+            setIsSubmitModalOpen(false);
+            router.push(`/dashboard/assessments/${assessmentId}/results`);
+            return;
+          }
+        } catch (_) {
+          // If status verification fails, fall through to display recoverable error
+        }
+      }
+
       setSubmitError(err.message || 'Submission failed. Please check your network and try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  if (loading) {
+  if (loading || authLoading || (user && user.role !== 'student')) {
     return (
       <div className="max-w-4xl mx-auto py-16 text-center space-y-4">
         <div className="inline-block w-8 h-8 border-3 border-[#0a66c2] border-t-transparent rounded-full animate-spin" />
@@ -263,6 +349,22 @@ export default function AssessmentTakingPage() {
               {assessment.mode === 'mcq' ? 'MCQ Mode' : assessment.mode === 'text' ? 'Typing Mode' : 'Mixed Mode'}
             </Badge>
           )}
+          <Badge
+            variant={
+              assessment.languageMode === 'flexible'
+                ? 'success'
+                : assessment.languageMode === 'hinglish'
+                ? 'warning'
+                : 'outline'
+            }
+            size="sm"
+          >
+            {assessment.languageMode === 'flexible'
+              ? 'Flexible Policy'
+              : assessment.languageMode === 'hinglish'
+              ? 'Hinglish Policy'
+              : 'English Policy'}
+          </Badge>
         </div>
 
         {/* Center: Elapsed Timer & Progress */}
@@ -279,16 +381,26 @@ export default function AssessmentTakingPage() {
 
         {/* Right: Language Toggle & Submit Action */}
         <div className="flex items-center gap-2">
-          {/* Language Toggle */}
-          <button
-            type="button"
-            onClick={() => setLanguage(language === 'en' ? 'hinglish' : 'en')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition cursor-pointer"
-            title="Switch display between English and Roman Hinglish"
-          >
-            <Globe className="w-3.5 h-3.5 text-[#0a66c2]" />
-            <span>{language === 'en' ? 'English' : 'Hinglish'}</span>
-          </button>
+          {/* Question Display Language Toggle */}
+          {assessment.languageMode === 'flexible' ? (
+            <button
+              type="button"
+              onClick={handleToggleDisplayLanguage}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-[#0a66c2] transition cursor-pointer"
+              title="Flexible Policy: Switch question display between English and Roman Hinglish"
+            >
+              <Globe className="w-3.5 h-3.5 text-[#0a66c2]" />
+              <span>{language === 'en' ? 'English Display' : 'Hinglish Display'}</span>
+            </button>
+          ) : (
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-slate-200 bg-slate-50 text-slate-500"
+              title={`Assessment policy is fixed to ${assessment.languageMode === 'hinglish' ? 'Hinglish' : 'English'}`}
+            >
+              <Globe className="w-3.5 h-3.5 text-slate-400" />
+              <span>{assessment.languageMode === 'hinglish' ? 'Hinglish' : 'English'}</span>
+            </div>
+          )}
 
           <Button
             size="sm"
@@ -453,7 +565,8 @@ export default function AssessmentTakingPage() {
                         Your Technical Answer:
                       </label>
                       <VoiceRecorder
-                        preferredLanguage={language}
+                        key={currentQuestion.questionId}
+                        preferredLanguage={assessment?.languageMode || 'english'}
                         onAppendText={(text) => {
                           const existing = currentAnswer ? currentAnswer.trim() : '';
                           const updated = existing ? `${existing} ${text}` : text;
@@ -461,15 +574,15 @@ export default function AssessmentTakingPage() {
                         }}
                       />
                     </div>
-                    {language === 'en' &&
+                    {(assessment?.languageMode || 'english') === 'english' &&
                       currentAnswer &&
-                      detectAnswerLanguage(currentAnswer, 'en').status === 'mismatch' && (
+                      detectAnswerLanguage(currentAnswer, 'english').status === 'mismatch' && (
                         <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2 animate-fadeIn">
                           <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                           <div>
                             <span className="font-semibold">Language Notice: </span>
-                            English mode is active, but your answer appears to be in Hindi/Hinglish.
-                            You may edit your answer to English in the box below before submitting to avoid an adherence deduction.
+                            English assessment policy is active, but your answer appears to be in Hindi/Hinglish.
+                            Please formulate technical answers in English before submitting to avoid an adherence deduction.
                           </div>
                         </div>
                       )}

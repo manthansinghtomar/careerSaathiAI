@@ -92,6 +92,9 @@ export default function AssessmentResultsPage() {
       const res = await api.post(`/assessments/${assessmentId}/evaluate`, {});
 
       if (res?.success) {
+        if (res?.partial) {
+          setEvalError(res?.message || 'Some questions were evaluated, but others failed and remain pending for retry.');
+        }
         // Refresh full results with evaluated scores
         setReloadIndex((prev) => prev + 1);
       } else {
@@ -126,8 +129,8 @@ export default function AssessmentResultsPage() {
     return (
       <div className="max-w-4xl mx-auto py-16 text-center space-y-4">
         <div className="inline-block w-8 h-8 border-3 border-[#0a66c2] border-t-transparent rounded-full animate-spin" />
-        <h3 className="text-base font-bold text-slate-900">Calculating Results...</h3>
-        <p className="text-xs text-slate-500">Loading scoring rubrics and topic performance diagnostics</p>
+        <h3 className="text-base font-bold text-slate-900">Loading Assessment Results...</h3>
+        <p className="text-xs text-slate-500">Retrieving your scores, performance diagnostics, and detailed feedback</p>
       </div>
     );
   }
@@ -236,8 +239,26 @@ export default function AssessmentResultsPage() {
                   {results.mode === 'mcq' ? 'MCQ Only' : results.mode === 'text' ? 'Typing Only' : 'Mixed Assessment'}
                 </Badge>
               )}
-              <Badge variant={scoring.isFullyEvaluated ? 'success' : 'warning'} size="sm" dot>
-                {scoring.isFullyEvaluated ? 'Fully Evaluated' : 'Partial (Pending AI Review)'}
+              <Badge
+                variant={
+                  scoring.isFullyEvaluated
+                    ? 'success'
+                    : isEvaluating
+                    ? 'primary'
+                    : evalError
+                    ? 'danger'
+                    : 'warning'
+                }
+                size="sm"
+                dot
+              >
+                {scoring.isFullyEvaluated
+                  ? 'Evaluation Complete'
+                  : isEvaluating
+                  ? 'Evaluating Answers...'
+                  : evalError
+                  ? 'Evaluation Incomplete'
+                  : 'Pending AI Evaluation'}
               </Badge>
             </div>
             <p className="text-xs text-slate-500">
@@ -261,11 +282,17 @@ export default function AssessmentResultsPage() {
               maxScore={100}
               size={140}
               strokeWidth={12}
-              sublabel={scoring.isFullyEvaluated ? 'Final Score' : 'Objective Score'}
+              sublabel={
+                scoring.isFullyEvaluated
+                  ? 'Final Assessment Score'
+                  : isEvaluating
+                  ? 'Calculating Score...'
+                  : 'Multiple Choice Score (Provisional)'
+              }
               label={
                 scoring.isFullyEvaluated
                   ? `Overall: ${scoring.overallScore || 0}/${scoring.overallMaxScore || 0} pts`
-                  : `Objective: ${scoring.objectiveScore || 0}/${scoring.objectiveMaxScore || 0} pts`
+                  : `MCQ: ${scoring.objectiveScore || 0}/${scoring.objectiveMaxScore || 0} pts`
               }
             />
           </div>
@@ -276,7 +303,7 @@ export default function AssessmentResultsPage() {
             <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-slate-700 uppercase tracking-wider text-[11px]">
-                  Multiple Choice (MCQ)
+                  Multiple Choice Questions
                 </span>
                 <span className="font-bold text-slate-900 text-sm">
                   {scoring.objectivePercentage ?? 0}%
@@ -297,12 +324,12 @@ export default function AssessmentResultsPage() {
             <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-slate-700 uppercase tracking-wider text-[11px]">
-                  Subjective Answers (AI Rubric)
+                  Descriptive Responses (AI Evaluated)
                 </span>
                 <span className="font-bold text-slate-900 text-sm">
                   {scoring.subjectivePercentage !== undefined && scoring.subjectivePercentage !== null
                     ? `${scoring.subjectivePercentage}%`
-                    : 'Pending'}
+                    : 'Pending Evaluation'}
                 </span>
               </div>
               <p className="text-slate-600 text-xs">
@@ -316,41 +343,64 @@ export default function AssessmentResultsPage() {
               </div>
             </div>
 
-            {/* AI Evaluation Trigger Bar (if pending subjective answers exist) */}
+            {/* Evaluation Action / Alert Banner (State-Driven: Failed vs Pending/In-Progress) */}
             {pendingSubjectiveCount > 0 && (
-              <div className="sm:col-span-2 p-4 rounded-xl border border-amber-200 bg-amber-50/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-1.5 font-bold text-amber-900 text-xs">
-                    <Brain className="w-4 h-4 text-amber-700" />
-                    <span>{pendingSubjectiveCount} subjective answer(s) awaiting AI rubric evaluation</span>
+              evalError ? (
+                // State: Failed AI Evaluation (Do NOT show "ready for evaluation")
+                <div className="sm:col-span-2 p-4 rounded-xl border border-rose-200 bg-rose-50/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs shadow-2xs">
+                  <div className="flex items-start gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <p className="font-bold text-rose-900 text-xs">
+                        AI Evaluation Incomplete ({pendingSubjectiveCount} answer{pendingSubjectiveCount === 1 ? '' : 's'} remaining)
+                      </p>
+                      <p className="text-rose-800 text-[11px] leading-relaxed">
+                        {evalError} Your submitted answers have been preserved safely.
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-amber-800 text-[11px]">
-                    Evaluate technical depth, conceptual reasoning, and edge-case handling against engineering rubrics.
-                  </p>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={handleTriggerAiEvaluation}
+                    isLoading={isEvaluating}
+                    loadingText="Retrying Evaluation..."
+                    icon={RotateCcw}
+                  >
+                    Retry AI Evaluation
+                  </Button>
                 </div>
+              ) : (
+                // State: Pending or Actively In-Progress Evaluation
+                <div className="sm:col-span-2 p-4 rounded-xl border border-amber-200 bg-amber-50/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-1.5 font-bold text-amber-900 text-xs">
+                      <Brain className="w-4 h-4 text-amber-700" />
+                      <span>
+                        {isEvaluating
+                          ? 'Evaluating your descriptive responses...'
+                          : `${pendingSubjectiveCount} descriptive answer(s) awaiting AI evaluation`}
+                      </span>
+                    </div>
+                    <p className="text-amber-800 text-[11px]">
+                      {isEvaluating
+                        ? 'Analyzing reasoning, technical depth, and completeness against verified competencies.'
+                        : 'Submit your written responses for automated evaluation to receive comprehensive feedback and complete your assessment score.'}
+                    </p>
+                  </div>
 
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={handleTriggerAiEvaluation}
-                  isLoading={isEvaluating}
-                  loadingText="Evaluating with AI..."
-                  icon={Sparkles}
-                >
-                  Run AI Evaluation
-                </Button>
-              </div>
-            )}
-
-            {/* Honest AI Evaluation Error Banner */}
-            {evalError && (
-              <div className="sm:col-span-2 p-3.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-800 text-xs flex items-start gap-2.5">
-                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="font-semibold mb-0.5">AI Evaluation Error</p>
-                  <p className="text-[11px] leading-relaxed">{evalError}</p>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={handleTriggerAiEvaluation}
+                    isLoading={isEvaluating}
+                    loadingText="Evaluating Responses..."
+                    icon={Sparkles}
+                  >
+                    Evaluate Written Answers
+                  </Button>
                 </div>
-              </div>
+              )
             )}
           </div>
         </div>
@@ -422,7 +472,7 @@ export default function AssessmentResultsPage() {
           <div>
             <h3 className="text-base font-bold text-slate-900">Question &amp; Answer Review</h3>
             <p className="text-xs text-slate-500">
-              Inspect correct answers, technical reference rubrics, and detailed AI feedback
+              Review correct answers, model explanations, and personalized feedback for each question
             </p>
           </div>
 
@@ -490,7 +540,7 @@ export default function AssessmentResultsPage() {
                   : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
               }`}
             >
-              Pending AI Review ({pendingSubjectiveCount})
+              Pending Evaluation ({pendingSubjectiveCount})
             </button>
           )}
         </div>
@@ -537,7 +587,7 @@ export default function AssessmentResultsPage() {
                           {q.difficulty}
                         </Badge>
                         <span className="text-xs text-slate-500">
-                          {isMcq ? 'MCQ (1 pt)' : 'Subjective (AI Rubric)'}
+                          {isMcq ? 'Multiple Choice (1 pt)' : 'Descriptive Response'}
                         </span>
                       </div>
 
@@ -549,8 +599,8 @@ export default function AssessmentResultsPage() {
 
                   <div className="flex items-center gap-2 shrink-0">
                     {isPending ? (
-                      <Badge variant="warning" size="sm" dot>
-                        Pending AI
+                      <Badge variant={evalError ? 'danger' : 'warning'} size="sm" dot>
+                        {evalError ? 'Pending Review' : 'Awaiting Evaluation'}
                       </Badge>
                     ) : isCorrect ? (
                       <Badge variant="success" size="sm" dot>
@@ -558,7 +608,7 @@ export default function AssessmentResultsPage() {
                       </Badge>
                     ) : (
                       <Badge variant="danger" size="sm" dot>
-                        Incorrect ({q.pointsEarned ?? 0} pt)
+                        Review Needed ({q.pointsEarned ?? 0} pt)
                       </Badge>
                     )}
 
@@ -587,7 +637,7 @@ export default function AssessmentResultsPage() {
                     {isMcq && Array.isArray(q.options) && (
                       <div className="space-y-2">
                         <span className="font-bold text-slate-500 block uppercase tracking-wider text-[10px]">
-                          Options &amp; Verification:
+                          Answer Options &amp; Key:
                         </span>
                         <div className="space-y-1.5">
                           {q.options.map((opt) => {
@@ -609,7 +659,7 @@ export default function AssessmentResultsPage() {
                                 <span className="flex-1">{getOptionText(opt)}</span>
                                 {isCorrectAnswer && (
                                   <Badge variant="success" size="sm">
-                                    Correct Key
+                                    Correct Answer
                                   </Badge>
                                 )}
                                 {isStudentPick && !isCorrectAnswer && (
@@ -642,11 +692,11 @@ export default function AssessmentResultsPage() {
                           </p>
                         </div>
 
-                        {/* Reference Rubric */}
+                        {/* Model Answer & Key Concepts */}
                         {q.correctAnswer && (
                           <div className="p-3.5 rounded-lg bg-blue-50/50 border border-blue-200 text-blue-950 space-y-1">
                             <span className="font-bold text-[#0a66c2] block uppercase tracking-wider text-[10px]">
-                              Expected Technical Reference / Rubric:
+                              Model Answer &amp; Key Concepts:
                             </span>
                             <p className="whitespace-pre-line leading-relaxed">
                               {q.correctAnswer}
@@ -654,46 +704,56 @@ export default function AssessmentResultsPage() {
                           </div>
                         )}
 
-                        {/* AI Rubric Evaluation Card */}
+                        {/* Detailed Evaluation Card */}
                         {q.aiEvaluation ? (
                           <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-4 shadow-2xs">
-                            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-2 border-b border-slate-100">
                               <div className="flex items-center gap-2">
                                 <Brain className="w-4 h-4 text-[#0a66c2]" />
                                 <span className="font-bold text-slate-900 text-xs">
-                                  AI Evaluation Score: {q.aiEvaluation.score} / 10 ({q.aiEvaluation.percentage}%)
+                                  Question Score: {q.pointsEarned ?? 0} / {q.maxPoints ?? 1} Pt ({q.aiEvaluation.percentage}%)
                                 </span>
                               </div>
-                              <Badge variant={q.isCorrect ? 'success' : 'danger'} size="sm">
-                                {q.pointsEarned ?? 0} / {q.maxPoints ?? 1} Points Awarded
-                              </Badge>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[11px] text-slate-500 font-medium">
+                                  Evaluator Rating: {q.aiEvaluation.score} / 10
+                                </span>
+                                <Badge variant={q.isCorrect ? 'success' : 'danger'} size="sm">
+                                  {q.isCorrect ? 'Meets Standards' : 'Needs Work'}
+                                </Badge>
+                              </div>
                             </div>
 
-                            {/* 5 Dimensions breakdown */}
+                            {/* Competency Breakdown (5 Dimensions) */}
                             {q.aiEvaluation.rubricBreakdown && (
-                              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                                {Object.entries(q.aiEvaluation.rubricBreakdown).map(([dim, val]) => (
-                                  <div key={dim} className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-center">
-                                    <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block truncate">
-                                      {dim.replace(/([A-Z])/g, ' $1')}
-                                    </span>
-                                    <span className="font-bold text-slate-900 text-xs mt-0.5 block">
-                                      {val} / 10
-                                    </span>
-                                  </div>
-                                ))}
+                              <div className="space-y-1.5">
+                                <span className="font-bold text-slate-700 block uppercase tracking-wider text-[10px]">
+                                  Competency Breakdown:
+                                </span>
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                                  {Object.entries(q.aiEvaluation.rubricBreakdown).map(([dim, val]) => (
+                                    <div key={dim} className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-center">
+                                      <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block truncate">
+                                        {dim.replace(/([A-Z])/g, ' $1')}
+                                      </span>
+                                      <span className="font-bold text-slate-900 text-xs mt-0.5 block">
+                                        {val} / 10
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             )}
 
-                            {/* Diagnostic feedback text */}
+                            {/* Detailed Feedback */}
                             {q.aiEvaluation.feedback && (
                               <div className="p-3 rounded-lg bg-slate-50 text-slate-700 leading-relaxed">
-                                <strong className="text-slate-900 font-semibold block mb-0.5">Diagnostic Feedback:</strong>
+                                <strong className="text-slate-900 font-semibold block mb-0.5">Detailed Feedback:</strong>
                                 {q.aiEvaluation.feedback}
                               </div>
                             )}
 
-                            {/* Strengths & Weaknesses */}
+                            {/* Strengths & Improvement Areas */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                               {Array.isArray(q.aiEvaluation.strengths) && q.aiEvaluation.strengths.length > 0 && (
                                 <div className="p-3 rounded-lg bg-emerald-50/50 border border-emerald-200 text-emerald-900 space-y-1">
@@ -707,8 +767,8 @@ export default function AssessmentResultsPage() {
                               )}
 
                               {Array.isArray(q.aiEvaluation.weaknesses) && q.aiEvaluation.weaknesses.length > 0 && (
-                                <div className="p-3 rounded-lg bg-rose-50/50 border border-rose-200 text-rose-900 space-y-1">
-                                  <span className="font-bold block text-[11px] text-rose-800">Gaps &amp; Weaknesses:</span>
+                                <div className="p-3 rounded-lg bg-amber-50/50 border border-amber-200 text-amber-900 space-y-1">
+                                  <span className="font-bold block text-[11px] text-amber-800">Areas for Improvement:</span>
                                   <ul className="list-disc list-inside space-y-0.5">
                                     {q.aiEvaluation.weaknesses.map((w, i) => (
                                       <li key={i}>{w}</li>
@@ -718,10 +778,10 @@ export default function AssessmentResultsPage() {
                               )}
                             </div>
 
-                            {/* Actionable Suggestions */}
+                            {/* Recommended Next Steps */}
                             {Array.isArray(q.aiEvaluation.suggestions) && q.aiEvaluation.suggestions.length > 0 && (
                               <div className="p-3 rounded-lg bg-blue-50/50 border border-blue-200 text-blue-900 space-y-1">
-                                <span className="font-bold block text-[11px] text-[#0a66c2]">Actionable Suggestions:</span>
+                                <span className="font-bold block text-[11px] text-[#0a66c2]">Recommended Next Steps:</span>
                                 <ul className="list-disc list-inside space-y-0.5">
                                   {q.aiEvaluation.suggestions.map((sug, i) => (
                                     <li key={i}>{sug}</li>
@@ -732,7 +792,7 @@ export default function AssessmentResultsPage() {
                           </div>
                         ) : (
                           <div className="p-3.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 flex items-center justify-between gap-3">
-                            <span>This subjective question is pending AI rubric evaluation.</span>
+                            <span>This descriptive answer has not been evaluated yet.</span>
                             <Button
                               size="sm"
                               variant="outline"
@@ -740,7 +800,7 @@ export default function AssessmentResultsPage() {
                               isLoading={isEvaluating}
                               icon={Sparkles}
                             >
-                              Evaluate Now
+                              Evaluate Answer
                             </Button>
                           </div>
                         )}

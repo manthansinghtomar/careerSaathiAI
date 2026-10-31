@@ -38,6 +38,13 @@ import {
 
 const TOPIC_LIST = ['JavaScript', 'React', 'Node.js', 'MongoDB'];
 
+function formatSafeScore(val) {
+  if (typeof val === 'number' && !isNaN(val)) {
+    return `${Math.round(val)}%`;
+  }
+  return null;
+}
+
 export default function ProgressAnalyticsPage() {
   const { user } = useAuth();
   const userRole = user?.role || 'student';
@@ -217,7 +224,7 @@ export default function ProgressAnalyticsPage() {
               onClick={() => setEvaluatedOnly(false)}
               className="text-xs text-[#0a66c2] font-semibold hover:underline mt-2 inline-block cursor-pointer"
             >
-              Include partially evaluated tests
+              Include assessments awaiting evaluation
             </button>
           )}
         </div>
@@ -340,7 +347,7 @@ export default function ProgressAnalyticsPage() {
             {/* Hover Tooltip Overlay */}
             {hoveredPoint && (
               <div
-                className="absolute z-10 pointer-events-none transform -translate-x-1/2 -translate-y-full bg-slate-900 text-white p-2.5 rounded-lg shadow-lg text-xs space-y-1 w-44"
+                className="absolute z-10 pointer-events-none transform -translate-x-1/2 -translate-y-full bg-slate-900 text-white p-2.5 rounded-lg shadow-lg text-xs space-y-1 w-48"
                 style={{
                   left: `${(hoveredPoint.cx / width) * 100}%`,
                   top: `${(hoveredPoint.cy / height) * 100 - 8}%`,
@@ -348,7 +355,9 @@ export default function ProgressAnalyticsPage() {
               >
                 <div className="flex justify-between font-bold border-b border-slate-700 pb-1">
                   <span>Score:</span>
-                  <span className="text-emerald-400">{hoveredPoint.overallPercentage}%</span>
+                  <span className="text-emerald-400">
+                    {formatSafeScore(hoveredPoint.overallPercentage) ?? '—'}
+                  </span>
                 </div>
                 <div className="text-[11px] text-slate-300 flex justify-between">
                   <span>Date:</span>
@@ -356,8 +365,13 @@ export default function ProgressAnalyticsPage() {
                 </div>
                 <div className="text-[11px] text-slate-300 flex justify-between">
                   <span>MCQ:</span>
-                  <span>{hoveredPoint.objectivePercentage}%</span>
+                  <span>{formatSafeScore(hoveredPoint.objectivePercentage) ?? '—'}</span>
                 </div>
+                {!hoveredPoint.isFullyEvaluated && (
+                  <div className="text-[10px] text-amber-300 font-medium pt-0.5 border-t border-slate-700/60">
+                    ● Provisional (Evaluation Pending)
+                  </div>
+                )}
                 {hoveredPoint.topics?.length > 0 && (
                   <p className="text-[10px] text-slate-400 truncate">
                     {hoveredPoint.topics.join(', ')}
@@ -385,13 +399,22 @@ export default function ProgressAnalyticsPage() {
               onClick={() => setEvaluatedOnly(!evaluatedOnly)}
               className="text-xs text-[#0a66c2] font-semibold hover:underline cursor-pointer"
             >
-              {evaluatedOnly ? 'Showing Fully Evaluated' : 'Showing All Completed'}
+              {evaluatedOnly ? 'Showing fully evaluated tests' : 'Showing all completed tests (inc. provisional)'}
             </button>
           </div>
         </div>
       </div>
     );
   };
+
+  const explicitRole =
+    typeof user?.careerProfile?.targetRole === 'string' &&
+    user.careerProfile.targetRole.trim() &&
+    user.careerProfile.targetRole.trim().toLowerCase() !== 'undefined'
+      ? user.careerProfile.targetRole.trim()
+      : null;
+
+  const displayRole = explicitRole || 'Learning Progress';
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-16">
@@ -404,7 +427,7 @@ export default function ProgressAnalyticsPage() {
                 Progress &amp; Skill Analytics
               </h1>
               <Badge variant="primary" size="sm">
-                Student
+                {displayRole}
               </Badge>
             </div>
             <p className="text-sm text-slate-600">
@@ -434,26 +457,34 @@ export default function ProgressAnalyticsPage() {
 
         <MetricCard
           title="Overall Average Score"
-          value={kpis.averageOverallPercentage !== null && kpis.averageOverallPercentage !== undefined ? `${kpis.averageOverallPercentage}%` : 'N/A'}
+          value={formatSafeScore(kpis.averageOverallPercentage) ?? 'N/A'}
           icon={TrendingUp}
           variant="success"
-          subtitle={kpis.bestOverallPercentage !== null && kpis.bestOverallPercentage !== undefined ? `Best score: ${kpis.bestOverallPercentage}%` : 'Take assessments to benchmark'}
+          subtitle={
+            formatSafeScore(kpis.bestOverallPercentage)
+              ? `Best score: ${formatSafeScore(kpis.bestOverallPercentage)}`
+              : 'Take assessments to benchmark'
+          }
         />
 
         <MetricCard
-          title="Objective Accuracy (MCQ)"
-          value={kpis.objectiveAveragePercentage !== null && kpis.objectiveAveragePercentage !== undefined ? `${kpis.objectiveAveragePercentage}%` : 'N/A'}
+          title="Multiple Choice Accuracy"
+          value={formatSafeScore(kpis.objectiveAveragePercentage) ?? 'N/A'}
           icon={CheckCircle2}
           variant="info"
-          subtitle="Mean accuracy across multiple-choice questions"
+          subtitle="Average score across multiple-choice questions"
         />
 
         <MetricCard
-          title="Subjective Depth (AI)"
-          value={kpis.subjectiveAveragePercentage !== null && kpis.subjectiveAveragePercentage !== undefined ? `${kpis.subjectiveAveragePercentage}%` : 'N/A'}
+          title="Descriptive Answers Average"
+          value={formatSafeScore(kpis.subjectiveAveragePercentage) ?? 'N/A'}
           icon={Award}
           variant="warning"
-          subtitle={kpis.pendingEvaluationAssessments ? `${kpis.pendingEvaluationAssessments} test(s) pending AI review` : 'Mean score across evaluated text answers'}
+          subtitle={
+            kpis.pendingEvaluationAssessments
+              ? `${kpis.pendingEvaluationAssessments} assessment(s) awaiting AI evaluation`
+              : 'Average score across evaluated descriptive answers'
+          }
         />
       </div>
 
@@ -477,7 +508,7 @@ export default function ProgressAnalyticsPage() {
                   : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
               }`}
             >
-              Evaluated Tests Only
+              Final Scored Tests
             </button>
             <button
               type="button"
@@ -488,7 +519,7 @@ export default function ProgressAnalyticsPage() {
                   : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
               }`}
             >
-              All Tests
+              All Completed Tests
             </button>
           </div>
         </div>
@@ -569,7 +600,7 @@ export default function ProgressAnalyticsPage() {
 
                   {t.pendingQuestionsCount > 0 && (
                     <p className="text-[11px] text-amber-700 bg-amber-50 px-2.5 py-1 rounded border border-amber-200">
-                      ℹ️ {t.pendingQuestionsCount} question(s) awaiting AI rubric evaluation
+                      ℹ️ {t.pendingQuestionsCount} descriptive answer(s) awaiting AI evaluation
                     </p>
                   )}
                 </div>
@@ -689,16 +720,27 @@ export default function ProgressAnalyticsPage() {
                       <TableCell>
                         {isInProgress ? (
                           <span className="text-xs text-slate-400 italic">Unsubmitted</span>
-                        ) : (
+                        ) : item.isFullyEvaluated || item.scoring?.isFullyEvaluated ? (
                           <span className="font-bold text-slate-900">
-                            {hasScore ? `${item.scoring.overallPercentage}%` : 'Pending'}
+                            {formatSafeScore(item.scoring?.overallPercentage) ?? '—'}
+                          </span>
+                        ) : typeof item.scoring?.objectivePercentage === 'number' && !isNaN(item.scoring.objectivePercentage) ? (
+                          <div className="flex flex-col">
+                            <span className="font-bold text-slate-700">
+                              {formatSafeScore(item.scoring.objectivePercentage)}
+                            </span>
+                            <span className="text-[10px] text-amber-600 font-medium">
+                              Provisional (MCQ)
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                            Pending
                           </span>
                         )}
                       </TableCell>
                       <TableCell className="text-xs text-slate-600">
-                        {item.scoring?.objectivePercentage !== undefined
-                           ? `${item.scoring.objectivePercentage}%`
-                          : '—'}
+                        {formatSafeScore(item.scoring?.objectivePercentage) ?? '—'}
                       </TableCell>
                       <TableCell className="text-xs text-slate-500">
                         {formatDate(item.completedAt || item.startedAt)}
@@ -753,6 +795,19 @@ export default function ProgressAnalyticsPage() {
               </div>
             )}
           </div>
+        ) : pagination.total === 0 && statusFilter === 'all' && !topicFilter ? (
+          <EmptyState
+            icon={FileText}
+            title="No Assessments Taken Yet"
+            description="Complete your first technical assessment to start tracking your skill progress, accuracy benchmarks, and historical scores."
+            action={
+              <Link href="/dashboard/assessments">
+                <Button size="sm" icon={Sparkles}>
+                  Take Your First Assessment
+                </Button>
+              </Link>
+            }
+          />
         ) : (
           <EmptyState
             icon={FileText}

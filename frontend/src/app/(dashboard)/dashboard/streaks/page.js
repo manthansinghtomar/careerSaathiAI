@@ -3,7 +3,6 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
-import { useHeartbeat } from '@/hooks/useHeartbeat';
 import { api } from '@/lib/api';
 import { formatDuration } from '@/lib/utils';
 import { MetricCard } from '@/components/shared/MetricCard';
@@ -37,9 +36,6 @@ export default function LearningStreaksPage() {
   const { user } = useAuth();
   const userRole = user?.role || 'student';
   const isStudent = userRole === 'student';
-
-  // Active learning heartbeat hook
-  const { activeSeconds: liveActiveSeconds, qualifiesStreak: liveQualifies, pingNow } = useHeartbeat('progress');
 
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(isStudent);
@@ -82,7 +78,6 @@ export default function LearningStreaksPage() {
     try {
       setIsRefreshing(true);
       setError(null);
-      await pingNow();
       const res = await api.get('/streak/summary');
       if (res?.success && res.data) {
         setSummary(res.data);
@@ -157,25 +152,42 @@ export default function LearningStreaksPage() {
     istDayKey,
   } = summary || {};
 
-  // Best effective seconds between server summary and live heartbeat
-  const effectiveActiveSeconds = Math.max(todayActiveSeconds, liveActiveSeconds);
-  const isGoalReached = qualifiesToday || liveQualifies || effectiveActiveSeconds >= targetSeconds;
-  const progressPercent = Math.min(100, Math.round((effectiveActiveSeconds / targetSeconds) * 100));
+  // Defensive handling for invalid or non-positive targetSeconds (fallback to 900s)
+  const safeTargetSeconds =
+    typeof targetSeconds === 'number' && Number.isFinite(targetSeconds) && targetSeconds > 0
+      ? targetSeconds
+      : 900;
+
+  // Authoritative active learning seconds from server summary
+  const activeLearningSeconds =
+    typeof todayActiveSeconds === 'number' && Number.isFinite(todayActiveSeconds) && todayActiveSeconds > 0
+      ? todayActiveSeconds
+      : 0;
+
+  const isGoalReached = Boolean(qualifiesToday || activeLearningSeconds >= safeTargetSeconds);
+  const rawProgress = Math.round((activeLearningSeconds / safeTargetSeconds) * 100);
+  const progressPercent = Math.min(100, Math.max(0, Number.isFinite(rawProgress) ? rawProgress : 0));
+
+  const remainingSeconds = Math.max(0, safeTargetSeconds - activeLearningSeconds);
+  const remainingMinutes = Math.max(1, Math.ceil(remainingSeconds / 60));
 
   // Determine status presentation
   const getStatusPresentation = () => {
+    // Resolve live status contradiction: if the daily goal is reached, celebrate immediately
+    if (isGoalReached || streakStatus === 'active') {
+      return {
+        label: 'Streak Active & Qualified Today',
+        badge: 'success',
+        msg: 'You have completed your 15-minute daily practice goal today! 🔥',
+      };
+    }
+
     switch (streakStatus) {
-      case 'active':
-        return {
-          label: 'Streak Active & Qualified Today',
-          badge: 'success',
-          msg: 'You have completed your 15-minute daily practice goal today! 🔥',
-        };
       case 'at_risk':
         return {
           label: 'Streak At Risk (Action Required)',
           badge: 'warning',
-          msg: `You practiced yesterday. Complete ${Math.max(1, Math.ceil((targetSeconds - effectiveActiveSeconds) / 60))} more minutes today before midnight IST to keep your streak!`,
+          msg: `You practiced yesterday. Complete ${remainingMinutes} more minute${remainingMinutes === 1 ? '' : 's'} today before midnight IST to keep your streak!`,
         };
       case 'broken':
         return {
@@ -194,6 +206,13 @@ export default function LearningStreaksPage() {
   };
 
   const statusInfo = getStatusPresentation();
+
+  // Dynamic milestone cap check based on actual STREAK_MILESTONES configuration
+  const maxConfiguredMilestone =
+    Array.isArray(STREAK_MILESTONES) && STREAK_MILESTONES.length > 0
+      ? Math.max(...STREAK_MILESTONES.map((m) => m.days))
+      : 100;
+  const allMilestonesAchieved = currentStreak >= maxConfiguredMilestone;
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-16">
@@ -266,11 +285,13 @@ export default function LearningStreaksPage() {
 
         <MetricCard
           title="Next Milestone Target"
-          value={`${nextMilestone} Days`}
+          value={allMilestonesAchieved ? `${maxConfiguredMilestone} Days` : `${nextMilestone} Days`}
           icon={Zap}
           variant="info"
           subtitle={
-            daysToNextMilestone === 0
+            allMilestonesAchieved
+              ? 'All consistency milestones achieved! 🏆'
+              : daysToNextMilestone === 0
               ? 'Milestone qualified today!'
               : `${daysToNextMilestone} more day${daysToNextMilestone === 1 ? '' : 's'} to unlock reward`
           }
@@ -283,13 +304,13 @@ export default function LearningStreaksPage() {
           <div>
             <h3 className="text-base font-bold text-slate-900">Today&apos;s Active Learning Time</h3>
             <p className="text-xs text-slate-500">
-              Validated on server via active learning heartbeats (assessments, recommendations, analytics)
+              Recorded automatically while you practice assessments, review analytics, or explore recommendations
             </p>
           </div>
 
           <div className="text-right">
             <span className="text-sm font-bold text-slate-900">
-              {formatDuration(effectiveActiveSeconds)} / 15m 00s
+              {formatDuration(activeLearningSeconds)} / {formatDuration(safeTargetSeconds)}
             </span>
             <span className="text-xs text-slate-400 block">{progressPercent}% Completed</span>
           </div>
@@ -329,7 +350,7 @@ export default function LearningStreaksPage() {
             <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <span>
               <strong>Learning in progress:</strong> Spend active time answering questions or reviewing recommendations to credit the remaining{' '}
-              <strong>{Math.max(1, Math.ceil((targetSeconds - effectiveActiveSeconds) / 60))} minutes</strong>.
+              <strong>{remainingMinutes} minute{remainingMinutes === 1 ? '' : 's'}</strong>.
             </span>
           </div>
         )}
@@ -387,14 +408,14 @@ export default function LearningStreaksPage() {
         </div>
       </div>
 
-      {/* Server Rules & Anti-Cheat Governance Card */}
+      {/* Streak Consistency Rules Card */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-3">
         <div className="flex items-center gap-2 font-bold text-sm text-slate-900">
           <ShieldCheck className="w-4 h-4 text-emerald-600" />
-          <span>Server-Side Streak Integrity Rules</span>
+          <span>Streak Consistency Rules</span>
         </div>
         <p className="text-xs text-slate-600 leading-relaxed">
-          To ensure genuine engineering skill improvement, CareerSaathi AI streaks are evaluated using backend server rules:
+          To ensure genuine engineering skill improvement, CareerSaathi AI streaks are evaluated daily to build consistent engineering habits:
         </p>
 
         <ul className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs text-slate-600">
@@ -413,13 +434,13 @@ export default function LearningStreaksPage() {
           <li className="flex items-start gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200">
             <span className="font-bold text-[#0a66c2] mt-0.5">3.</span>
             <span>
-              <strong>Indian Standard Time (IST):</strong> Calendar day rollovers occur strictly at midnight IST (zero clock bleed).
+              <strong>Indian Standard Time (IST):</strong> Calendar days reset strictly at midnight Indian Standard Time (IST).
             </span>
           </li>
           <li className="flex items-start gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200">
             <span className="font-bold text-[#0a66c2] mt-0.5">4.</span>
             <span>
-              <strong>Eligible Contexts:</strong> Time is credited when practicing tests, analyzing performance, or reviewing recommendations.
+              <strong>Eligible Activities:</strong> Time is credited when practicing tests, analyzing performance, or reviewing recommendations.
             </span>
           </li>
         </ul>
